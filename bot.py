@@ -22,9 +22,8 @@ if sys.platform == 'win32':
 
 import os
 
-BOT_TOKEN = os.environ.get('BOT_TOKEN')
-
-print(f"🔑 BOT_TOKEN получен: {'ДА, длина=' + str(len(BOT_TOKEN)) if BOT_TOKEN else 'НЕТ (None)'}")
+BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
+print(f"🔑 Токен (первые 10 символов): {BOT_TOKEN[:10]}...")
 
 if not BOT_TOKEN:
     raise SystemExit("❌ BOT_TOKEN не найден в переменных окружения!")
