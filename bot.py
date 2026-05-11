@@ -1020,6 +1020,11 @@ SUBSCRIPTION_TYPES = {
         'cost_stars': 50,
         'description': 'Короткая подписка (3 дня)'
     },
+    '3months': {
+        'duration_days': 90,
+        'cost_stars': 999,
+        'description': '3 months / 3 месяца / 3 meses / 3 महीने / 3 bulan'
+    },
     'monthly': {
         'duration_days': 30,
         'cost_stars': 500,
@@ -1056,7 +1061,7 @@ def grant_referral_subscription(user_id):
 
 def grant_paid_subscription(user_id, sub_type):
     """Выдаёт платную подписку"""
-    if sub_type not in ['short', 'monthly']:
+    if sub_type not in ['short', 'monthly', '3months']:
         return False, "Неверный тип подписки"
 
     duration = SUBSCRIPTION_TYPES[sub_type]['duration_days']
@@ -1400,26 +1405,34 @@ def buy_menu(user_id):
     lang = ensure_user(user_id).get('lang') or 'en'
 
     if lang == 'ru':
-        text_30 = "⭐ 50 (3 дня)"
+        text_3months = "⭐ 999 (90 дней)"
         text_250 = "⭐ 500 (30 дней)"
         text_1000 = "⭐ 1500 (навсегда)"
     elif lang == 'es':
-        text_30 = "⭐ 50 (3 días)"
+        text_3months = "⭐ 999 (90 días)"
         text_250 = "⭐ 500 (30 días)"
         text_1000 = "⭐ 1500 (para siempre)"
+    elif lang == 'hi':
+        text_3months = "⭐ 999 (90 दिन)"
+        text_250 = "⭐ 500 (30 दिन)"
+        text_1000 = "⭐ 1500 (हमेशा के लिए)"
+    elif lang == 'id':
+        text_3months = "⭐ 999 (90 hari)"
+        text_250 = "⭐ 500 (30 hari)"
+        text_1000 = "⭐ 1500 (selamanya)"
     else:
-        text_30 = "⭐ 50 (3 days)"
+        text_3months = "⭐ 999 (90 days)"
         text_250 = "⭐ 500 (30 days)"
         text_1000 = "⭐ 1500 (forever)"
 
     markup.add(types.InlineKeyboardButton(
-        text_30,
-        callback_data='buy_30'
+        text_250,
+        callback_data='buy_250'
     ))
 
     markup.add(types.InlineKeyboardButton(
-        text_250,
-        callback_data='buy_250'
+        text_3months,
+        callback_data='buy_3months'
     ))
 
     markup.add(types.InlineKeyboardButton(
@@ -2281,25 +2294,41 @@ def callback(call):
         if lang == 'ru':
             text = (
                 "💳 ДОСТУП В СЕКРЕТНЫЙ КАНАЛ\n\n"
-                "⭐ 50 звёзд — 3 дня\n"
-                "⭐ 500 звёзд — 30 дней\n"
-                "⭐ 1500 звёзд — НАВСЕГДА\n\n"
+                "⭐ 500 звёзд — 1 месяц\n"
+                "⭐ 999 звёзд — 3 месяца \n"
+                "⭐ 1500 звёзд — НАВСЕГДА \n\n"
                 "Выбери тариф:"
             )
         elif lang == 'es':
             text = (
                 "💳 ACCESO AL CANAL SECRETO\n\n"
-                "⭐ 50 estrellas — 3 días\n"
-                "⭐ 500 estrellas — 30 días\n"
-                "⭐ 1500 estrellas — PARA SIEMPRE\n\n"
+                "⭐ 500 estrellas — 1 mes\n"
+                "⭐ 999 estrellas — 3 meses \n"
+                "⭐ 1500 estrellas — PARA SIEMPRE \n\n"
                 "Elige tu plan:"
+            )
+        elif lang == 'hi':
+            text = (
+                "💳 सीक्रेट चैनल तक पहुंच\n\n"
+                "⭐ 500 स्टार — 1 महीना\n"
+                "⭐ 999 स्टार — 3 महीने \n"
+                "⭐ 1500 स्टार — हमेशा के लिए \n\n"
+                "अपना प्लान चुनें:"
+            )
+        elif lang == 'id':
+            text = (
+                "💳 AKSES KE CHANNEL RAHASIA\n\n"
+                "⭐ 500 bintang — 1 bulan\n"
+                "⭐ 999 bintang — 3 bulan \n"
+                "⭐ 1500 bintang — SELAMANYA \n\n"
+                "Pilih paketmu:"
             )
         else:
             text = (
                 "💳 ACCESS TO SECRET CHANNEL\n\n"
-                "⭐ 50 stars — 3 days\n"
-                "⭐ 500 stars — 30 days\n"
-                "⭐ 1500 stars — FOREVER\n\n"
+                "⭐ 500 stars — 1 month\n"
+                "⭐ 999 stars — 3 months \n"
+                "⭐ 1500 stars — FOREVER \n\n"
                 "Choose your plan:"
             )
 
@@ -2444,9 +2473,9 @@ def callback(call):
         # 🏠 Показываем главное меню после кейса
         show_menu(chat_id, user_id)
 
-    elif call.data == 'buy_30':
+    elif call.data == 'buy_3months':
         bot.answer_callback_query(call.id)
-        send_invoice(user_id, 50, "sub_3d")
+        send_invoice(user_id, 999, "sub_90d")
     elif call.data == 'buy_250':
         bot.answer_callback_query(call.id)
         send_invoice(user_id, 500, "sub_30d")
@@ -2730,8 +2759,13 @@ def got_payment(message):
 
     # ✅ Используем новую систему подписок
     if payload == "sub_3d":
+        # ✅ ОБРАТНАЯ СОВМЕСТИМОСТЬ: старые покупки на 3 дня продолжают работать
         grant_paid_subscription(user_id, 'short')
         sub_type = 'short'
+    elif payload == "sub_90d":
+        # Новый тариф — 3 месяца
+        add_subscription(user_id, '3months', 90)
+        sub_type = '3months'
     elif payload == "sub_30d":
         grant_paid_subscription(user_id, 'monthly')
         sub_type = 'monthly'
@@ -2828,4 +2862,4 @@ if __name__ == '__main__':
     print('Бот запущен...')
     print('⚠️  Добавь бота как администратора в оба канала!')
     print(f'⚠️  Загрузи банер и замени MENU_PHOTO на полученный file_id')
-    bot.infinity_polling(skip_pending=True, timeout=10, long_polling_timeout=5)
+    bot.infinity_polling(skip_pending=True, timeout=10, long_polling_timeout=5
