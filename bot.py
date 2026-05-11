@@ -978,7 +978,9 @@ def check_and_remove_expired_subscriptions():
             deactivate_subscription(sub['id'])
 
         # Проверяем, есть ли ещё активные подписки
-        if not has_active_subscription(user_id):
+        user_data = get_user(user_id)
+        is_forever = user_data and user_data.get('paid_forever') == 1
+        if not has_active_subscription(user_id) and not is_forever:
             # Если нет активных подписок - удаляем из канала
             print(f"🚫 У пользователя {user_id} нет активных подписок, удаляем из канала")
             kick_user_from_channel(user_id, SECRET_CHANNEL_ID)
