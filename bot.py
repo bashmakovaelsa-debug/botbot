@@ -2862,4 +2862,4 @@ if __name__ == '__main__':
     print('Бот запущен...')
     print('⚠️  Добавь бота как администратора в оба канала!')
     print(f'⚠️  Загрузи банер и замени MENU_PHOTO на полученный file_id')
-    bot.infinity_polling(skip_pending=True, timeout=10, long_polling_timeout=5
+    bot.infinity_polling(skip_pending=True, timeout=10, long_polling_timeout=5)
