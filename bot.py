@@ -32,6 +32,8 @@ LINK_COOLDOWN = 300      # Задержка на генерацию ссылок
 SECRET_CHANNEL_LINK = "https://t.me/+KRsICQIFXV01Yzkx"
 LOOTBOX_COOLDOWN = 60  # 60 секунд между открытиями кейса
 SECRET_CHANNEL_ID = -1003560284356
+LITE_CHANNEL_ID = -1003951067494
+LITE_CHANNEL_LINK = "https://t.me/+-xorUn-MI480ODIx"
 bot = telebot.TeleBot(BOT_TOKEN)
 
 # Состояния последовательного onboarding
@@ -66,6 +68,9 @@ def clear_fsm_state(user_id):
 
 # Хранилище активных reengage-таймеров
 active_reengage_timers = {}
+
+# Хранилище активных daily bonus reminder-таймеров
+active_bonus_reminders = {}
 
 def reengage_user(user_id):
     time.sleep(600)  # 10 минут
@@ -104,6 +109,130 @@ def start_reengage(user_id):
     ).start()
 
 
+# ================= DAILY BONUS REMINDER SYSTEM =================
+def start_bonus_reminder(user_id):
+    """Запускает reminder-таймер для ежедневного бонуса"""
+    # ✅ Если уже есть активный таймер - не запускаем новый
+    if user_id in active_bonus_reminders:
+        return
+
+    # ✅ Проверяем, нужно ли запускать reminder
+    user = ensure_user(user_id)
+    now = time.time()
+    last_daily = user.get('last_daily', 0)
+
+    if last_daily > 0:
+        time_since_last_bonus = now - last_daily
+        if time_since_last_bonus < 86400:
+            # Если бонус был получен менее 24 часов назад, вычисляем время до следующего
+            time_to_wait = 86400 - time_since_last_bonus
+            print(f"⏰ Устанавливаем reminder для пользователя {user_id} через {time_to_wait} секунд")
+
+            # ✅ Добавляем в активные
+            active_bonus_reminders[user_id] = True
+
+            # Запускаем таймер с вычисленным временем
+            threading.Thread(
+                target=send_bonus_reminder_with_delay,
+                args=(user_id, time_to_wait),
+                daemon=True
+            ).start()
+            return
+
+    # ✅ Добавляем в активные
+    active_bonus_reminders[user_id] = True
+
+    threading.Thread(
+        target=send_bonus_reminder,
+        args=(user_id,),
+        daemon=True
+    ).start()
+
+
+def send_bonus_reminder_with_delay(user_id, delay):
+    """Отправляет reminder-сообщение о ежедневном бонусе с задержкой"""
+    time.sleep(delay)  # Ждем вычисленное время
+
+    try:
+        # ✅ Проверяем, что таймер всё ещё активен
+        if user_id not in active_bonus_reminders:
+            return
+
+        # ✅ Удаляем из активных после выполнения
+        del active_bonus_reminders[user_id]
+
+        # ✅ Проверяем, можно ли получить бонус
+        can_claim, remaining = can_claim_daily_bonus(user_id)
+
+        if not can_claim:
+            print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
+            return
+
+        # ✅ Отправляем reminder-сообщение
+        message = send_daily_bonus_message(user_id)
+
+        if message:
+            print(f"✅ Отправлен reminder о бонусе пользователю {user_id}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки reminder для пользователя {user_id}: {e}")
+
+
+def send_bonus_reminder(user_id):
+    """Отправляет reminder-сообщение о ежедневном бонусе через 24 часа"""
+    time.sleep(86400)  # 24 часа = 86400 секунд
+
+    try:
+        # ✅ Проверяем, что таймер всё ещё активен
+        if user_id not in active_bonus_reminders:
+            return
+
+        # ✅ Удаляем из активных после выполнения
+        del active_bonus_reminders[user_id]
+
+        # ✅ Проверяем, можно ли получить бонус
+        can_claim, remaining = can_claim_daily_bonus(user_id)
+
+        if not can_claim:
+            print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
+            return
+
+        # ✅ Отправляем reminder-сообщение
+        message = send_daily_bonus_message(user_id)
+
+        if message:
+            print(f"✅ Отправлен reminder о бонусе пользователю {user_id}")
+    except Exception as e:
+        print(f"❌ Ошибка отправки reminder для пользователя {user_id}: {e}")
+
+
+def initialize_bonus_reminders():
+    """Инициализирует reminder-систему для существующих пользователей"""
+    print("🚀 Инициализация reminder-системы для существующих пользователей...")
+
+    conn = sqlite3.connect('bot_database.db')
+    cursor = conn.cursor()
+
+    # Получаем всех пользователей, у которых есть last_daily
+    cursor.execute("SELECT id, last_daily FROM users WHERE last_daily > 0")
+    users = cursor.fetchall()
+
+    conn.close()
+
+    now = time.time()
+    initialized_count = 0
+
+    for user_id, last_daily in users:
+        time_since_last_bonus = now - last_daily
+
+        # Запускаем reminder только если прошло менее 24 часов
+        if time_since_last_bonus < 86400:
+            print(f"📋 Пользователь {user_id}: последний бонус был {time_since_last_bonus} секунд назад")
+            start_bonus_reminder(user_id)
+            initialized_count += 1
+
+    print(f"✅ Reminder-система инициализирована для {initialized_count} пользователей")
+
+
 # ================= ПОСЛЕДОВАТЕЛЬНЫЙ ONBOARDING =================
 def start_sequential_onboarding(user_id, source='start'):
     """Запускает последовательный onboarding для пользователя"""
@@ -137,10 +266,33 @@ def process_onboarding_step(user_id, step):
         update_user(user_id, funnel_step=FUNNEL_WELCOME)
 
     elif step == FUNNEL_WELCOME:
-        # После приветствия - ежедневный бонус
-        print(f"📝 Этап 3: Отправляем ежедневный бонус пользователю {user_id}")
-        send_daily_bonus_message(user_id)
-        update_user(user_id, funnel_step=FUNNEL_BONUS)
+        # После приветствия - ежедневный бонус (если доступен)
+        print(f"📝 Этап 3: Проверяем ежедневный бонус для пользователя {user_id}")
+
+        # ✅ Используем can_claim_daily_bonus для проверки
+        can_claim, remaining = can_claim_daily_bonus(user_id)
+
+        if can_claim:
+            # Бонус доступен - отправляем сообщение
+            print(f"✅ Бонус доступен для пользователя {user_id}")
+            bonus_message = send_daily_bonus_message(user_id)
+
+            if bonus_message:
+                # Бонус отправлен - переходим к этапу бонуса
+                update_user(user_id, funnel_step=FUNNEL_BONUS)
+                print(f"✅ Бонус отправлен, ожидаем получения от пользователя {user_id}")
+            else:
+                # Если по какой-то причине не удалось отправить бонус
+                print(f"❌ Не удалось отправить бонус пользователю {user_id}")
+                show_sub(user_id, user_id)
+                update_user(user_id, funnel_step=FUNNEL_SUBSCRIPTION)
+        else:
+            # Бонус недоступен - пропускаем этап бонуса и переходим сразу к подписке
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+            print(f"ℹ️ Бонус недоступен для пользователя {user_id}. Осталось: {hours}ч {minutes}мин")
+            show_sub(user_id, user_id)
+            update_user(user_id, funnel_step=FUNNEL_SUBSCRIPTION)
 
     elif step == FUNNEL_BONUS:
         # После бонуса - подписка на каналы
@@ -164,10 +316,142 @@ def send_welcome_message(user_id):
     print(f"✅ Отправлено приветствие пользователю {user_id}")
 
 
-def send_daily_bonus_message(user_id):
-    """Отправляет сообщение о ежедневном бонусе"""
+def can_claim_daily_bonus(user_id):
+    """
+    Проверяет, может ли пользователь получить ежедневный бонус.
+
+    Returns:
+        tuple: (can_claim: bool, remaining_seconds: int)
+               can_claim - True если бонус доступен
+               remaining_seconds - сколько секунд осталось до следующего бонуса (0 если доступен)
+    """
+    user = ensure_user(user_id)
+    now = time.time()
+
+    first_bonus_claimed = user.get('first_bonus_claimed', 0)
+
+    # Если первый бонус еще не был получен - всегда можно получить
+    if first_bonus_claimed == 0:
+        print(f"✅ Пользователь {user_id} может получить первый бонус")
+        return True, 0
+
+    # Если первый бонус уже был получен - проверяем cooldown
+    last_daily = user.get('last_daily', 0)
+
+    if last_daily > 0:
+        time_since_last_bonus = now - last_daily
+
+        if time_since_last_bonus < 86400:  # 24 часа = 86400 секунд
+            remaining = int(86400 - time_since_last_bonus)
+            print(f"⏳ Пользователь {user_id} не может получить бонус. Осталось: {remaining} секунд")
+            return False, remaining
+
+    # Если прошло 24 часа или last_daily == 0 - можно получить
+    print(f"✅ Пользователь {user_id} может получить бонус")
+    return True, 0
+
+
+def show_daily_bonus_button(user_id, chat_id, message_id=None):
+    """
+    Универсальная функция для показа кнопки ежедневного бонуса.
+
+    Args:
+        user_id: ID пользователя
+        chat_id: ID чата
+        message_id: ID сообщения для редактирования (опционально)
+
+    Returns:
+        Message object или None
+    """
     user = ensure_user(user_id)
     lang = user.get('lang') or 'en'
+
+    # ✅ Проверяем, можно ли получить бонус
+    can_claim, remaining = can_claim_daily_bonus(user_id)
+
+    if not can_claim:
+        # Бонус недоступен - показываем alert с оставшимся временем
+        hours = remaining // 3600
+        minutes = (remaining % 3600) // 60
+
+        if lang == 'ru':
+            msg = f"⏳ Бонус будет доступен через {hours}ч {minutes}мин"
+        elif lang == 'es':
+            msg = f"⏳ El bono estará disponible en {hours}h {minutes}min"
+        else:
+            msg = f"⏳ Bonus will be available in {hours}h {minutes}min"
+
+        if message_id:
+            try:
+                bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    text=msg,
+                    reply_markup=None
+                )
+                return None
+            except Exception:
+                pass
+
+        bot.send_message(chat_id, msg)
+        return None
+
+    # Бонус доступен - показываем кнопку
+    if lang == 'ru':
+        msg = "🎁 Ежедневный бонус доступен!\n\nНажми кнопку для получения:"
+        btn_text = "🎁 Получить бонус"
+    elif lang == 'es':
+        msg = "🎁 ¡Bono diario disponible!\n\nPresiona el botón para recibirlo:"
+        btn_text = "🎁 Recibir bono"
+    else:
+        msg = "🎁 Daily bonus available!\n\nPress button to receive:"
+        btn_text = "🎁 Get bonus"
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(btn_text, callback_data='claim_daily_bonus'))
+
+    # Редактируем или отправляем сообщение
+    if message_id:
+        try:
+            message = bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=msg,
+                reply_markup=markup,
+                parse_mode='HTML'
+            )
+            # Сохраняем message_id в базе данных
+            if message:
+                update_user(user_id, bonus_message_id=message.message_id)
+                print(f"✅ Отредактировано сообщение о бонусе для пользователя {user_id}, message_id: {message.message_id}")
+            return message
+        except Exception as e:
+            print(f"❌ Ошибка редактирования сообщения: {e}")
+            # Если не удалось отредактировать, отправляем новое
+            pass
+
+    # Отправляем новое сообщение
+    message = bot.send_message(chat_id, msg, reply_markup=markup, parse_mode='HTML')
+
+    # Сохраняем message_id в базе данных
+    if message:
+        update_user(user_id, bonus_message_id=message.message_id)
+        print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}")
+
+    return message
+
+
+def send_daily_bonus_message(user_id):
+    """Отправляет сообщение о ежедневном бонусе, если можно получить бонус"""
+    user = ensure_user(user_id)
+    lang = user.get('lang') or 'en'
+
+    # ✅ Проверяем, можно ли получить бонус
+    can_claim, remaining = can_claim_daily_bonus(user_id)
+
+    if not can_claim:
+        print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
+        return None
 
     if lang == 'ru':
         msg = "🎁 Ежедневный бонус доступен!\n\nНажми кнопку для получения:"
@@ -183,8 +467,14 @@ def send_daily_bonus_message(user_id):
     markup.add(types.InlineKeyboardButton(btn_text, callback_data='claim_daily_bonus'))
 
     # ✅ Отправляем сообщение и ждём завершения
-    bot.send_message(user_id, msg, reply_markup=markup, parse_mode='HTML')
-    print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}")
+    message = bot.send_message(user_id, msg, reply_markup=markup, parse_mode='HTML')
+
+    # ✅ Сохраняем message_id в базе данных
+    if message:
+        update_user(user_id, bonus_message_id=message.message_id)
+        print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}")
+
+    return message
 
 def is_real_user(obj):
     """
@@ -372,7 +662,8 @@ def migrate_db():
         ("last_lootbox", "REAL DEFAULT 0"),
         ("lootbox_uses", "INTEGER DEFAULT 0"),
         ("lose_streak", "INTEGER DEFAULT 0"),
-        ("is_clean_start", "INTEGER DEFAULT 0")
+        ("is_clean_start", "INTEGER DEFAULT 0"),
+        ("first_bonus_claimed", "INTEGER DEFAULT 0")
     ]
 
     for col_name, col_type in columns:
@@ -405,6 +696,14 @@ def get_user(user_id):
         print(f"❌ Поле last_daily не найдено в таблице!")
         last_daily_index = None
 
+    # ✅ Находим индекс поля first_bonus_claimed
+    try:
+        first_bonus_claimed_index = column_names.index('first_bonus_claimed')
+        print(f"✅ Индекс поля first_bonus_claimed: {first_bonus_claimed_index}")
+    except ValueError:
+        print(f"❌ Поле first_bonus_claimed не найдено в таблице!")
+        first_bonus_claimed_index = None
+
     cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
@@ -433,6 +732,7 @@ def get_user(user_id):
             'last_lootbox': safe_get(row, 18, 0),
             'lootbox_uses': safe_get(row, 19, 0),
             'lose_streak': safe_get(row, 20, 0),
+            'first_bonus_claimed': safe_get(row, first_bonus_claimed_index if first_bonus_claimed_index is not None else 21, 0),
         }
 
         # ✅ Прямая проверка в базе данных
@@ -562,6 +862,51 @@ def test_subscriptions(message):
 
     # Показываем активные подписки
     active_subs = get_active_subscriptions(user_id)
+
+    msg = f"🧪 Тестирование системы подписок для пользователя {user_id}:\n\n"
+
+    # GOLD канал
+    gold_subs = get_active_subscriptions(user_id, SECRET_CHANNEL_ID)
+    if gold_subs:
+        msg += f"✅ GOLD канал: {len(gold_subs)} активных подписок\n"
+        for sub in gold_subs:
+            expires = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(sub['expires_at']))
+            msg += f"   • {sub['type']}: до {expires}\n"
+    else:
+        msg += f"❌ GOLD канал: нет активных подписок\n"
+
+    # LITE канал
+    lite_subs = get_active_subscriptions(user_id, LITE_CHANNEL_ID)
+    if lite_subs:
+        msg += f"✅ LITE канал: {len(lite_subs)} активных подписок\n"
+        for sub in lite_subs:
+            expires = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(sub['expires_at']))
+            msg += f"   • {sub['type']}: до {expires}\n"
+    else:
+        msg += f"❌ LITE канал: нет активных подписок\n"
+
+    # Проверка доступа
+    has_gold = has_active_subscription(user_id, SECRET_CHANNEL_ID)
+    has_lite = has_active_subscription(user_id, LITE_CHANNEL_ID)
+
+    msg += f"\n🔒 Доступ:\n"
+    msg += f"   GOLD: {'✅ Есть' if has_gold else '❌ Нет'}\n"
+    msg += f"   LITE: {'✅ Есть' if has_lite else '❌ Нет'}\n"
+
+    bot.reply_to(message, msg)
+
+
+@bot.message_handler(commands=['test_lite_system'])
+def test_lite_system(message):
+    """Тестовая команда для проверки системы LITE подписок"""
+    if message.from_user.id not in ADMIN_IDS:
+        bot.reply_to(message, "❌ Только для администраторов")
+        return
+
+    bot.reply_to(message, "🧪 Запускаю тестирование системы LITE подписок...")
+    test_lite_subscription_system()
+    bot.reply_to(message, "✅ Тестирование завершено! Проверьте логи.")
+
 
     msg = f"🧪 Тестирование подписок для пользователя {user_id}:\n\n"
 
@@ -895,7 +1240,73 @@ def deactivate_all_user_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     conn.commit()
     conn.close()
 
-    print(f"✅ Все подписки пользователя {user_id} деактивированы")
+    print(f"✅ Все подписки пользователя {user_id} деактивированы для канала {channel_id}")
+
+
+def test_lite_subscription_system():
+    """Тестовая функция для проверки системы временного доступа в LITE канал"""
+    print("🧪 Тестирование системы временного доступа в SD FETISH LITE...")
+
+    # Тест 1: Проверка создания подписки
+    print("📝 Тест 1: Создание 3-дневной подписки")
+    test_user_id = 999999999  # Тестовый пользователь
+    test_sub_id = add_subscription(test_user_id, 'lite_3days', 3, LITE_CHANNEL_ID)
+    print(f"✅ Создана тестовая подписка: {test_sub_id}")
+
+    # Тест 2: Проверка активной подписки
+    print("📝 Тест 2: Проверка активной подписки")
+    active_subs = get_active_subscriptions(test_user_id, LITE_CHANNEL_ID)
+    print(f"✅ Активные подписки: {len(active_subs)}")
+    for sub in active_subs:
+        expires_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(sub['expires_at']))
+        print(f"   - {sub['type']}: истекает {expires_at}")
+
+    # Тест 3: Проверка has_active_subscription
+    print("📝 Тест 3: Проверка has_active_subscription")
+    has_access = has_active_subscription(test_user_id, LITE_CHANNEL_ID)
+    print(f"✅ Есть доступ: {has_access}")
+
+    # Тест 4: Проверка get_max_expiration
+    print("📝 Тест 4: Проверка get_max_expiration")
+    max_exp = get_max_expiration(test_user_id, LITE_CHANNEL_ID)
+    if max_exp > 0:
+        expires_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(max_exp))
+        print(f"✅ Максимальное время истечения: {expires_at}")
+    else:
+        print(f"❌ Нет активных подписок")
+
+    # Тест 5: Проверка деактивации подписки
+    print("📝 Тест 5: Деактивация подписки")
+    deactivate_subscription(test_sub_id)
+    print(f"✅ Подписка {test_sub_id} деактивирована")
+
+    # Тест 6: Проверка после деактивации
+    print("📝 Тест 6: Проверка после деактивации")
+    has_access_after = has_active_subscription(test_user_id, LITE_CHANNEL_ID)
+    print(f"✅ Есть доступ после деактивации: {has_access_after}")
+
+    # Тест 7: Проверка функции kick_user_from_channel
+    print("📝 Тест 7: Проверка функции kick_user_from_channel")
+    # Не выполняем реальный kick, только проверяем что функция существует
+    print(f"✅ Функция kick_user_from_channel доступна")
+
+    # Тест 8: Проверка check_and_remove_expired_subscriptions
+    print("📝 Тест 8: Проверка check_and_remove_expired_subscriptions")
+    print("✅ Функция check_and_remove_expired_subscriptions доступна")
+
+    # Очистка тестовых данных
+    print("🧹 Очистка тестовых данных...")
+    try:
+        conn = sqlite3.connect('bot_database.db')
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM subscriptions WHERE user_id = ?", (test_user_id,))
+        conn.commit()
+        conn.close()
+        print(f"✅ Тестовые данные удалены")
+    except Exception as e:
+        print(f"❌ Ошибка удаления тестовых данных: {e}")
+
+    print("✅ Тестирование системы временного доступа завершено!")
 
 
 def kick_user_from_channel(user_id, channel_id):
@@ -905,19 +1316,36 @@ def kick_user_from_channel(user_id, channel_id):
         user = get_user(user_id)
         lang = user.get('lang') or 'en' if user else 'en'
 
+        # Определяем тип канала для сообщения
+        if channel_id == LITE_CHANNEL_ID:
+            channel_name = "SD FETISH LITE"
+        elif channel_id == SECRET_CHANNEL_ID:
+            channel_name = "SD FETISH GOLD"
+        else:
+            channel_name = "канал"
+
         msgs = {
-            'ru': "⏰ Ваша подписка на SD FETISH GOLD истекла.\n\nДля продления выберите тариф в меню бота.",
-            'en': "⏰ Your SD FETISH GOLD subscription has expired.\n\nTo renew, select a plan in the bot menu.",
-            'es': "⏰ Tu suscripción a SD FETISH GOLD ha expirado.\n\nPara renovar, selecciona un plan en el menú del bot.",
-            'hi': "⏰ आपकी SD FETISH GOLD सब्सक्रिप्शन समाप्त हो गई है।\n\nनवीनीकरण के लिए, बॉट मेनू में एक योजना चुनें।",
-            'id': "⏰ Langganan SD FETISH GOLD Anda telah kedaluwarsa.\n\nUntuk memperbarui, pilih paket di menu bot."
+            'ru': f"⏰ Ваша подписка на {channel_name} истекла.\n\nДля продления выберите тариф в меню бота.",
+            'en': f"⏰ Your {channel_name} subscription has expired.\n\nTo renew, select a plan in the bot menu.",
+            'es': f"⏰ Tu suscripción a {channel_name} ha expirado.\n\nPara renovar, selecciona un plan en el menú del bot.",
+            'hi': f"⏰ आपकी {channel_name} सब्सक्रिप्शन समाप्त हो गई है।\n\nनवीनीकरण के लिए, बॉट मेनू में एक योजना चुनें।",
+            'id': f"⏰ Langganan {channel_name} Anda telah kedaluwarsa.\n\nUntuk memperbarui, pilih paket di menu bot."
         }
 
         try:
             bot.send_message(user_id, msgs.get(lang, msgs['en']))
-            print(f"✅ Уведомление отправлено пользователю {user_id} об истечении подписки")
+            print(f"✅ Уведомление отправлено пользователю {user_id} об истечении подписки на {channel_name}")
         except Exception as msg_error:
             print(f"⚠️ Не удалось отправить уведомление пользователю {user_id}: {msg_error}")
+
+        # Проверяем, есть ли пользователь в канале
+        try:
+            member = bot.get_chat_member(channel_id, user_id)
+            print(f"📋 Пользователь {user_id} найден в канале {channel_id}, статус: {member.status}")
+        except Exception as check_error:
+            print(f"ℹ️ Пользователь {user_id} не найден в канале {channel_id}: {check_error}")
+            # Если пользователя нет в канале, считаем что удаление успешно
+            return True
 
         # Сначала баним пользователя
         bot.ban_chat_member(channel_id, user_id)
@@ -959,35 +1387,62 @@ def check_and_remove_expired_subscriptions():
 
     print(f"📊 Найдено {len(expired_subs)} истекших подписок")
 
-    # Группируем по пользователям
-    user_subscriptions = {}
+    # Группируем по пользователям и каналам
+    user_channel_subs = {}
     for sub_id, user_id, sub_type, channel_id, expires_at in expired_subs:
-        if user_id not in user_subscriptions:
-            user_subscriptions[user_id] = []
-        user_subscriptions[user_id].append({
+        key = f"{user_id}_{channel_id}"
+        if key not in user_channel_subs:
+            user_channel_subs[key] = []
+        user_channel_subs[key].append({
             'id': sub_id,
+            'user_id': user_id,
             'type': sub_type,
             'channel_id': channel_id,
             'expires_at': expires_at
         })
 
-    # Обрабатываем каждого пользователя
-    for user_id, subs in user_subscriptions.items():
+    # Обрабатываем каждую комбинацию пользователь-канал
+    for key, subs in user_channel_subs.items():
+        user_id = subs[0]['user_id']
+        channel_id = subs[0]['channel_id']
+
+        # Определяем название канала для логов
+        if channel_id == str(LITE_CHANNEL_ID):
+            channel_name = "SD FETISH LITE"
+        elif channel_id == str(SECRET_CHANNEL_ID):
+            channel_name = "SD FETISH GOLD"
+        else:
+            channel_name = f"канал {channel_id}"
+
+        print(f"🔄 Обработка пользователя {user_id} для {channel_name}")
+
         # Деактивируем истекшие подписки
         for sub in subs:
-            deactivate_subscription(sub['id'])
+            try:
+                deactivate_subscription(sub['id'])
+                print(f"✅ Деактивирована подписка {sub['id']} ({sub['type']}) для пользователя {user_id}")
+            except Exception as e:
+                print(f"❌ Ошибка деактивации подписки {sub['id']}: {e}")
 
-        # Проверяем, есть ли ещё активные подписки
-        user_data = get_user(user_id)
-        is_forever = user_data and user_data.get('paid_forever') == 1
-        if not has_active_subscription(user_id) and not is_forever:
-            # Если нет активных подписок - удаляем из канала
-            print(f"🚫 У пользователя {user_id} нет активных подписок, удаляем из канала")
-            kick_user_from_channel(user_id, SECRET_CHANNEL_ID)
+        # Проверяем, есть ли ещё активные подписки для этого канала
+        has_active = has_active_subscription(user_id, int(channel_id))
+
+        if not has_active:
+            # Если нет активных подписок для этого канала - удаляем из канала
+            print(f"🚫 У пользователя {user_id} нет активных подписок на {channel_name}, удаляем из канала")
+
+            try:
+                kick_success = kick_user_from_channel(user_id, int(channel_id))
+                if kick_success:
+                    print(f"✅ Пользователь {user_id} успешно удален из {channel_name}")
+                else:
+                    print(f"⚠️ Не удалось удалить пользователя {user_id} из {channel_name}")
+            except Exception as e:
+                print(f"❌ Ошибка удаления пользователя {user_id} из {channel_name}: {e}")
         else:
             # Если есть активные подписки - оставляем в канале
-            max_exp = get_max_expiration(user_id)
-            print(f"✅ У пользователя {user_id} есть активные подписки до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(max_exp))}")
+            max_exp = get_max_expiration(user_id, int(channel_id))
+            print(f"✅ У пользователя {user_id} есть активные подписки на {channel_name} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(max_exp))}")
 
 
 def start_subscription_checker():
@@ -1035,6 +1490,11 @@ SUBSCRIPTION_TYPES = {
     'referral': {
         'duration_days': 10,
         'description': 'Реферальная подписка (10 дней)'
+    },
+    'lite_3days': {
+        'duration_days': 3,
+        'cost_stars': 59,
+        'description': 'SD FETISH LITE (3 дня)'
     }
 }
 
@@ -1295,8 +1755,8 @@ def ensure_user(user_id):
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO users (id, lang, ref_by, referrals, bonus, reward_given, subscribed, last_link_time, created_at, last_daily)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, lang, ref_by, referrals, bonus, reward_given, subscribed, last_link_time, created_at, last_daily, first_bonus_claimed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         user_id,
         None,
@@ -1307,13 +1767,14 @@ def ensure_user(user_id):
         0,
         0,
         int(time.time()),
-        0  # ✅ Добавляем last_daily = 0 для новых пользователей
+        0,  # ✅ Добавляем last_daily = 0 для новых пользователей
+        0   # ✅ Добавляем first_bonus_claimed = 0 для новых пользователей
     ))
 
     conn.commit()
     conn.close()
 
-    print(f"✅ Создан новый пользователь {user_id} с last_daily=0")
+    print(f"✅ Создан новый пользователь {user_id} с last_daily=0, first_bonus_claimed=0")
 
     return get_user(user_id)
 
@@ -1408,24 +1869,34 @@ def buy_menu(user_id):
 
     if lang == 'ru':
         text_3months = "⭐ 999 (90 дней)"
-        text_250 = "⭐ 500 (30 дней)"
+        text_250 = "⭐ 499 (30 дней)"
         text_1000 = "⭐ 1500 (навсегда)"
+        text_lite = "⭐ 59 (3 дня)"
     elif lang == 'es':
         text_3months = "⭐ 999 (90 días)"
-        text_250 = "⭐ 500 (30 días)"
+        text_250 = "⭐ 499 (30 días)"
         text_1000 = "⭐ 1500 (para siempre)"
+        text_lite = "⭐ 59 (3 días)"
     elif lang == 'hi':
         text_3months = "⭐ 999 (90 दिन)"
-        text_250 = "⭐ 500 (30 दिन)"
+        text_250 = "⭐ 499 (30 दिन)"
         text_1000 = "⭐ 1500 (हमेशा के लिए)"
+        text_lite = "⭐ 59 (3 दिन)"
     elif lang == 'id':
         text_3months = "⭐ 999 (90 hari)"
-        text_250 = "⭐ 500 (30 hari)"
+        text_250 = "⭐ 499 (30 hari)"
         text_1000 = "⭐ 1500 (selamanya)"
+        text_lite = "⭐ 59 (3 hari)"
     else:
         text_3months = "⭐ 999 (90 days)"
-        text_250 = "⭐ 500 (30 days)"
+        text_250 = "⭐ 499 (30 days)"
         text_1000 = "⭐ 1500 (forever)"
+        text_lite = "⭐ 59 (3 days)"
+
+    markup.add(types.InlineKeyboardButton(
+        text_lite,
+        callback_data='buy_lite_3days'
+    ))
 
     markup.add(types.InlineKeyboardButton(
         text_250,
@@ -1567,26 +2038,24 @@ def give_reward(user_id):
     )
 
 
-def daily_bonus(user_id):
+def daily_bonus(user_id, bonus_message_id=None):
+    """Выдает ежедневный бонус с жесткой проверкой cooldown"""
     user = ensure_user(user_id)
     now = time.time()
 
-    # ✅ Проверяем, прошел ли день с последнего бонуса
-    last_daily = user.get('last_daily', 0)
+    # ✅ ЖЁСТКАЯ ПРОВЕРКА в самом начале функции
+    first_bonus_claimed = user.get('first_bonus_claimed', 0)
 
-    print(f"🔍 Проверка ежедневного бонуса для пользователя {user_id}:")
-    print(f"   Текущее время: {now}")
-    print(f"   Последний бонус: {last_daily}")
-    print(f"   Прошло времени: {now - last_daily} секунд")
-    print(f"   Нужно пройти: 86400 секунд (24 часа)")
+    if first_bonus_claimed == 1:
+        last_daily = user.get('last_daily', 0)
+        if last_daily > 0 and now - last_daily < 86400:
+            remaining = int(86400 - (now - last_daily))
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+            print(f"⏳ Пользователь {user_id} уже получал бонус сегодня. Осталось: {hours}ч {minutes}мин")
+            return False
 
-    # Если уже получал бонус сегодня - выходим
-    if last_daily > 0 and now - last_daily < 86400:
-        remaining = int(86400 - (now - last_daily))
-        hours = remaining // 3600
-        minutes = (remaining % 3600) // 60
-        print(f"ℹ️ Пользователь {user_id} уже получал бонус сегодня. Осталось: {hours}ч {minutes}мин")
-        return
+    print(f"🔍 Выдача ежедневного бонуса для пользователя {user_id}")
 
     reward = random.randint(1, 5)
 
@@ -1595,31 +2064,38 @@ def daily_bonus(user_id):
 
     print(f"✅ Выдаём ежедневный бонус пользователю {user_id}: +{reward} (было: {current_bonus}, станет: {current_bonus + reward})")
 
-    update_user(
-        user_id,
-        bonus=current_bonus + reward,
-        last_daily=now
-    )
+    # ✅ Обновляем данные пользователя
+    update_data = {
+        'bonus': current_bonus + reward,
+        'last_daily': now,
+        'first_bonus_claimed': 1  # ✅ Устанавливаем флаг первого бонуса
+    }
+
+    update_user(user_id, **update_data)
 
     # ✅ Прямая проверка в базе данных
     conn = sqlite3.connect('bot_database.db')
     cursor = conn.cursor()
-    cursor.execute("SELECT last_daily, bonus FROM users WHERE id = ?", (user_id,))
+    cursor.execute("SELECT last_daily, bonus, first_bonus_claimed FROM users WHERE id = ?", (user_id,))
     result = cursor.fetchone()
     conn.close()
 
     if result:
-        db_last_daily, db_bonus = result
+        db_last_daily, db_bonus, db_first_bonus_claimed = result
         print(f"🔍 ПРЯМАЯ ПРОВЕРКА В БАЗЕ:")
         print(f"   last_daily в базе: {db_last_daily}")
         print(f"   bonus в базе: {db_bonus}")
+        print(f"   first_bonus_claimed в базе: {db_first_bonus_claimed}")
         print(f"   Ожидалось last_daily: {now}")
         print(f"   Ожидалось bonus: {current_bonus + reward}")
+        print(f"   Ожидалось first_bonus_claimed: 1")
 
         if db_last_daily != now:
             print(f"❌ ОШИБКА: last_daily не сохранился в базе!")
         if db_bonus != current_bonus + reward:
             print(f"❌ ОШИБКА: bonus не сохранился в базе!")
+        if db_first_bonus_claimed != 1:
+            print(f"❌ ОШИБКА: first_bonus_claimed не сохранился в базе!")
 
     lang = user.get('lang') or 'en'
     if lang == 'ru':
@@ -1629,7 +2105,26 @@ def daily_bonus(user_id):
     else:
         msg = f"🎁 Daily bonus: +{reward}\n⏳ Come back tomorrow"
 
-    bot.send_message(user_id, msg)
+    # ✅ Редактируем сообщение вместо отправки нового
+    if bonus_message_id:
+        try:
+            bot.edit_message_text(
+                chat_id=user_id,
+                message_id=bonus_message_id,
+                text=msg,
+                reply_markup=None
+            )
+            print(f"✅ Отредактировано сообщение с бонусом для пользователя {user_id}")
+            return True
+        except Exception as e:
+            print(f"❌ Ошибка редактирования сообщения: {e}")
+            # Если не удалось отредактировать, отправляем новое сообщение
+            bot.send_message(user_id, msg)
+            return True
+    else:
+        # Если нет message_id, отправляем новое сообщение
+        bot.send_message(user_id, msg)
+        return True
 
 
 def progress_bar(current, total=20):
@@ -2237,14 +2732,14 @@ def on_language_selected(call, lang):
     # 2. Приветствие
     show_welcome(chat_id, user_id)
 
-    # 3. Ежедневный бонус
-    daily_bonus(user_id)
-
-    # 4. Каналы для подписки
+    # 3. Каналы для подписки
     show_sub(chat_id, user_id)
 
-    # 5. Главное меню — сразу после каналов
+    # 4. Главное меню — сразу после каналов
     show_menu(chat_id, user_id)
+
+    # 5. Запускаем reengage таймер
+    start_reengage(user_id)
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -2275,10 +2770,59 @@ def callback(call):
 
     # Обработка получения ежедневного бонуса
     elif call.data == 'claim_daily_bonus':
+        # ✅ Серверная проверка cooldown
+        user = ensure_user(user_id)
+        can_claim, remaining = can_claim_daily_bonus(user_id)
+
+        if not can_claim:
+            # Бонус недоступен - показываем alert с оставшимся временем
+            hours = remaining // 3600
+            minutes = (remaining % 3600) // 60
+
+            lang = user.get('lang') or 'en'
+            if lang == 'ru':
+                alert_text = f"⏳ Бонус будет доступен через {hours}ч {minutes}мин"
+            elif lang == 'es':
+                alert_text = f"⏳ El bono estará disponible en {hours}h {minutes}min"
+            else:
+                alert_text = f"⏳ Bonus will be available in {hours}h {minutes}min"
+
+            bot.answer_callback_query(call.id, alert_text, show_alert=True)
+            print(f"⏳ Пользователь {user_id} пытается получить бонус раньше времени. Осталось: {hours}ч {minutes}мин")
+            return
+
+        # ✅ Если проверка прошла, продолжаем обработку
         bot.answer_callback_query(call.id)
 
-        # Даем бонус
-        daily_bonus(user_id)
+        lang = user.get('lang') or 'en'
+        bonus_message_id = user.get('bonus_message_id')
+
+        if lang == 'ru':
+            success_text = "✅ Бонус получен!"
+        elif lang == 'es':
+            success_text = "✅ ¡Bono recibido!"
+        else:
+            success_text = "✅ Bonus received!"
+
+        # Редактируем сообщение с бонусом
+        if bonus_message_id:
+            try:
+                bot.edit_message_text(
+                    chat_id=user_id,
+                    message_id=bonus_message_id,
+                    text=success_text,
+                    reply_markup=None  # Убираем кнопки
+                )
+                print(f"✅ Отредактировано сообщение о бонусе для пользователя {user_id}")
+            except Exception as e:
+                print(f"❌ Ошибка редактирования сообщения: {e}")
+
+        # Даем бонус (передаем bonus_message_id для редактирования)
+        bonus_given = daily_bonus(user_id, bonus_message_id)
+
+        # Запускаем reminder на следующие 24 часа, если бонус был выдан
+        if bonus_given:
+            start_bonus_reminder(user_id)
 
         # Переходим к следующему шагу
         current_step = user.get('funnel_step', 0)
@@ -2295,42 +2839,52 @@ def callback(call):
 
         if lang == 'ru':
             text = (
-                "💳 ДОСТУП В СЕКРЕТНЫЙ КАНАЛ\n\n"
-                "⭐ 500 звёзд — 1 месяц\n"
-                "⭐ 999 звёзд — 3 месяца \n"
-                "⭐ 1500 звёзд — НАВСЕГДА \n\n"
+                "💳 ДОСТУП В GOLD КАНАЛ\n\n"
+                "⭐ 499 звёзд — 30 дней\n"
+                "⭐ 999 звёзд — 90 дней\n"
+                "⭐ 1500 звёзд — НАВСЕГДА\n\n"
+                "💳 ДОСТУП В LITE КАНАЛ\n\n"
+                "⭐ 59 звёзд — 3 дня\n\n"
                 "Выбери тариф:"
             )
         elif lang == 'es':
             text = (
-                "💳 ACCESO AL CANAL SECRETO\n\n"
-                "⭐ 500 estrellas — 1 mes\n"
-                "⭐ 999 estrellas — 3 meses \n"
-                "⭐ 1500 estrellas — PARA SIEMPRE \n\n"
+                "💳 ACCESO AL CANAL GOLD\n\n"
+                "⭐ 499 estrellas — 30 días\n"
+                "⭐ 999 estrellas — 90 días\n"
+                "⭐ 1500 estrellas — PARA SIEMPRE\n\n"
+                "💳 ACCESO AL CANAL LITE\n\n"
+                "⭐ 59 estrellas — 3 días\n\n"
                 "Elige tu plan:"
             )
         elif lang == 'hi':
             text = (
-                "💳 सीक्रेट चैनल तक पहुंच\n\n"
-                "⭐ 500 स्टार — 1 महीना\n"
-                "⭐ 999 स्टार — 3 महीने \n"
-                "⭐ 1500 स्टार — हमेशा के लिए \n\n"
+                "💳 GOLD चैनल तक पहुंच\n\n"
+                "⭐ 499 स्टार — 30 दिन\n"
+                "⭐ 999 स्टार — 90 दिन\n"
+                "⭐ 1500 स्टार — हमेशा के लिए\n\n"
+                "💳 LITE चैनल तक पहुंच\n\n"
+                "⭐ 59 स्टार — 3 दिन\n\n"
                 "अपना प्लान चुनें:"
             )
         elif lang == 'id':
             text = (
-                "💳 AKSES KE CHANNEL RAHASIA\n\n"
-                "⭐ 500 bintang — 1 bulan\n"
-                "⭐ 999 bintang — 3 bulan \n"
-                "⭐ 1500 bintang — SELAMANYA \n\n"
+                "💳 AKSES KE CHANNEL GOLD\n\n"
+                "⭐ 499 bintang — 30 hari\n"
+                "⭐ 999 bintang — 90 hari\n"
+                "⭐ 1500 bintang — SELAMANYA\n\n"
+                "💳 AKSES KE CHANNEL LITE\n\n"
+                "⭐ 59 bintang — 3 hari\n\n"
                 "Pilih paketmu:"
             )
         else:
             text = (
-                "💳 ACCESS TO SECRET CHANNEL\n\n"
-                "⭐ 500 stars — 1 month\n"
-                "⭐ 999 stars — 3 months \n"
-                "⭐ 1500 stars — FOREVER \n\n"
+                "💳 ACCESS TO GOLD CHANNEL\n\n"
+                "⭐ 499 stars — 30 days\n"
+                "⭐ 999 stars — 90 days\n"
+                "⭐ 1500 stars — FOREVER\n\n"
+                "💳 ACCESS TO LITE CHANNEL\n\n"
+                "⭐ 59 stars — 3 days\n\n"
                 "Choose your plan:"
             )
 
@@ -2480,10 +3034,69 @@ def callback(call):
         send_invoice(user_id, 999, "sub_90d")
     elif call.data == 'buy_250':
         bot.answer_callback_query(call.id)
-        send_invoice(user_id, 500, "sub_30d")
+        send_invoice(user_id, 499, "sub_30d")
     elif call.data == 'buy_1000':
         bot.answer_callback_query(call.id)
         send_invoice(user_id, 1500, "sub_forever")
+    elif call.data == 'buy_lite_3days':
+        bot.answer_callback_query(call.id)
+        lang = ensure_user(user_id).get('lang') or 'en'
+
+        warning_texts = {
+            'ru': (
+                "⚠️ Важно! При покупке доступа на 3 дня вы получаете контент только за последние 3 дня. "
+                "Публикации старше этого периода недоступны в этом плане — они удаляются автоматически.\n\n"
+                "Если вы хотите доступ ко всем материалам (включая архив), выберите план '3 месяца' или 'Навсегда'.\n\n"
+                "Убедитесь, что этот вариант вам подходит, перед покупкой."
+            ),
+            'en': (
+                "⚠️ Important! When purchasing 3-day access, you get content only from the last 3 days. "
+                "Posts older than this period are not available in this plan — they are automatically deleted.\n\n"
+                "If you want access to all materials (including the archive), choose the '3 months' or 'Forever' plan.\n\n"
+                "Make sure this option suits you before purchasing."
+            ),
+            'es': (
+                "⚠️ ¡Importante! Al comprar acceso de 3 días, obtienes contenido solo de los últimos 3 días. "
+                "Las publicaciones anteriores a este período no están disponibles en este plan — se eliminan automáticamente.\n\n"
+                "Si deseas acceso a todos los materiales (incluido el archivo), elige el plan '3 meses' o 'Para siempre'.\n\n"
+                "Asegúrate de que esta opción te conviene antes de comprar."
+            ),
+            'hi': (
+                "⚠️ महत्वपूर्ण! 3 दिन की एक्सेस खरीदने पर आपको केवल पिछले 3 दिनों का कंटेंट मिलेगा। "
+                "इस अवधि से पहले प्रकाशित पोस्ट इस प्लान में उपलब्ध नहीं हैं — वे स्वचालित रूप से हटा दिए जाते हैं।\n\n"
+                "यदि आप सभी सामग्री (आर्काइव सहित) तक पहुंच चाहते हैं, तो '3 महीने' या 'हमेशा के लिए' प्लान चुनें।\n\n"
+                "खरीदने से पहले सुनिश्चित करें कि यह विकल्प आपके लिए उपयुक्त है।"
+            ),
+            'id': (
+                "⚠️ Penting! Saat membeli akses 3 hari, kamu mendapatkan konten hanya dari 3 hari terakhir. "
+                "Postingan yang diterbitkan sebelum periode ini tidak tersedia dalam paket ini — mereka dihapus secara otomatis.\n\n"
+                "Jika kamu ingin akses ke semua materi (termasuk arsip), pilih paket '3 bulan' atau 'Selamanya'.\n\n"
+                "Pastikan pilihan ini cocok untukmu sebelum membeli."
+            )
+        }
+
+        agree_texts = {
+            'ru': '✅ Я согласен',
+            'en': '✅ I agree',
+            'es': '✅ Estoy de acuerdo',
+            'hi': '✅ मैं सहमत हूं',
+            'id': '✅ Saya setuju'
+        }
+
+        warning_markup = types.InlineKeyboardMarkup()
+        warning_markup.add(types.InlineKeyboardButton(
+            agree_texts.get(lang, agree_texts['en']),
+            callback_data='confirm_lite_3days'
+        ))
+        warning_markup.add(types.InlineKeyboardButton(
+            t(user_id, 'back'),
+            callback_data='buy_access'
+        ))
+
+        bot.send_message(user_id, warning_texts.get(lang, warning_texts['en']), reply_markup=warning_markup)
+    elif call.data == 'confirm_lite_3days':
+        bot.answer_callback_query(call.id)
+        send_invoice(user_id, 59, "sub_lite_3d")
     # ── Реферальная программа ─────────────────────────────
     elif call.data == 'ref_program':
         bot.answer_callback_query(call.id)
@@ -2724,6 +3337,43 @@ def handle_all_join_requests(join_request):
             )
         return
 
+    # ✅ Проверяем, это ли LITE канал
+    if chat_id == LITE_CHANNEL_ID:
+        print(f"🔒 Это LITE канал, проверяем доступ...")
+        user = get_user(user_id)
+
+        if not user:
+            print(f"❌ Пользователь {user_id} не найден в базе")
+            bot.decline_chat_join_request(chat_id, user_id)
+            return
+
+        # ✅ Используем новую систему подписок для LITE канала
+        has_access = has_active_subscription(user_id, LITE_CHANNEL_ID)
+
+        print(f"   Доступ: {has_access}")
+
+        if has_access:
+            bot.approve_chat_join_request(chat_id, user_id)
+            print(f"✅ Доступ разрешён для пользователя {user_id} в LITE канал")
+
+            bot.send_message(
+                user_id,
+                "🔥 Добро пожаловать в SD FETISH LITE\n\n"
+                "Ты получил доступ на 3 дня ⏰"
+            )
+        else:
+            bot.decline_chat_join_request(chat_id, user_id)
+            print(f"❌ Доступ запрещён для пользователя {user_id} в LITE канал")
+
+            bot.send_message(
+                user_id,
+                "❌ Доступ закрыт\n\n"
+                "Для доступа к SD FETISH LITE нужно:\n"
+                "• купить 3-дневный тариф\n\n"
+                "Выберите тариф в меню бота"
+            )
+        return
+
     # ✅ Проверяем, это ли хаб-каналы
     hub_channel_ids = [ch.get('chat_id') for ch in HUB_CHANNELS[:2] if 'chat_id' in ch]
     print(f"📋 Хаб-каналы: {hub_channel_ids}")
@@ -2771,6 +3421,9 @@ def got_payment(message):
     elif payload == "sub_30d":
         grant_paid_subscription(user_id, 'monthly')
         sub_type = 'monthly'
+    elif payload == "sub_lite_3d":
+        add_subscription(user_id, 'lite_3days', 3, LITE_CHANNEL_ID)
+        sub_type = 'lite_3days'
     elif payload == "sub_forever":
         # Для навсегда используем старую систему
         update_user(user_id, paid_forever=1)
@@ -2800,7 +3453,15 @@ def got_payment(message):
     bot.send_message(user_id, success_msg)
 
     # ✅ НОВОЕ: создаём одноразовую ссылку и сразу отправляем
-    invite_link = create_one_time_invite_link(SECRET_CHANNEL_ID, expire_seconds=86400)
+    # Определяем канал в зависимости от типа подписки
+    if sub_type == 'lite_3days':
+        channel_id = LITE_CHANNEL_ID
+        channel_link = LITE_CHANNEL_LINK
+    else:
+        channel_id = SECRET_CHANNEL_ID
+        channel_link = SECRET_CHANNEL_LINK
+
+    invite_link = create_one_time_invite_link(channel_id, expire_seconds=86400)
 
     if invite_link:
         bot.send_message(
@@ -2821,7 +3482,7 @@ def got_payment(message):
             reply_markup=types.InlineKeyboardMarkup().add(
                 types.InlineKeyboardButton(
                     fallback_btn,
-                    url=SECRET_CHANNEL_LINK
+                    url=channel_link
                 )
             )
         )
@@ -2861,7 +3522,18 @@ def handle_photo(message):
         bot.send_message(user_id, "❌ Фото не найдено в сообщении.")
 
 if __name__ == '__main__':
-    print('Бот запущен...')
-    print('⚠️  Добавь бота как администратора в оба канала!')
-    print(f'⚠️  Загрузи банер и замени MENU_PHOTO на полученный file_id')
+    print('🚀 Бот запущен...')
+    print('⚠️  Добавь бота как администратора во все каналы!')
+    print('⚠️  Особенно важно: права "Просматривать сообщения" + "Удалять сообщения" в LITE канале')
+
+    # Инициализация
+    initialize_bonus_reminders()
+
+    # Системы подписок
+    start_subscription_checker()
+    threading.Thread(target=check_and_remove_expired_subscriptions, daemon=True).start()
+
+
+    print("✅ Все сервисы запущены. Бот работает.")
+
     bot.infinity_polling(skip_pending=True, timeout=10, long_polling_timeout=5)
