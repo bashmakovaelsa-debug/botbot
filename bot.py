@@ -191,15 +191,9 @@ def check_and_send_daily_reminders():
 
                             # Если нет активного сообщения или оно старое (более 24 часов)
                             should_send = True
-                            if bonus_message_id:
-                                try:
-                                    # Пытаемся получить информацию о сообщении
-                                    bot.get_chat_message(user_id, bonus_message_id)
-                                    # Если сообщение существует и оно свежее, не отправляем новое
-                                    should_send = False
-                                except Exception:
-                                    # Сообщение не существует или недоступно
-                                    should_send = True
+                            if bonus_message_id and bonus_message_id != 0:
+                                # Если есть активное сообщение и напоминание было недавно, не отправляем новое
+                                should_send = False
 
                             if should_send:
                                 message = send_daily_bonus_message(user_id)
@@ -279,12 +273,9 @@ def initialize_bonus_reminders():
 
                     # Если нет активного сообщения или оно старое
                     should_send = True
-                    if bonus_message_id:
-                        try:
-                            bot.get_chat_message(user_id, bonus_message_id)
-                            should_send = False
-                        except Exception:
-                            should_send = True
+                    if bonus_message_id and bonus_message_id != 0:
+                        # Если есть активное сообщение и напоминание было недавно, не отправляем новое
+                        should_send = False
 
                     if should_send:
                         message = send_daily_bonus_message(user_id)
@@ -517,38 +508,43 @@ def show_daily_bonus_button(user_id, chat_id, message_id=None):
 
 def send_daily_bonus_message(user_id):
     """Отправляет сообщение о ежедневном бонусе, если можно получить бонус"""
-    user = ensure_user(user_id)
-    lang = user.get('lang') or 'en'
+    try:
+        user = ensure_user(user_id)
+        lang = user.get('lang') or 'en'
 
-    # ✅ Проверяем, можно ли получить бонус
-    can_claim, remaining = can_claim_daily_bonus(user_id)
+        # ✅ Проверяем, можно ли получить бонус
+        can_claim, remaining = can_claim_daily_bonus(user_id)
 
-    if not can_claim:
-        print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
+        if not can_claim:
+            print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
+            return None
+
+        if lang == 'ru':
+            msg = "🎁 Ежедневный бонус доступен!\n\nНажми кнопку для получения:"
+            btn_text = "🎁 Получить бонус"
+        elif lang == 'es':
+            msg = "🎁 ¡Bono diario disponible!\n\nPresiona el botón para recibirlo:"
+            btn_text = "🎁 Recibir bono"
+        else:
+            msg = "🎁 Daily bonus available!\n\nPress button to receive:"
+            btn_text = "🎁 Get bonus"
+
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(btn_text, callback_data='claim_daily_bonus'))
+
+        # ✅ Отправляем сообщение и ждём завершения
+        message = bot.send_message(user_id, msg, reply_markup=markup, parse_mode='HTML')
+
+        # ✅ Сохраняем message_id в базе данных
+        if message:
+            update_user(user_id, bonus_message_id=message.message_id)
+            print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}")
+
+        return message
+
+    except Exception as e:
+        print(f"❌ Ошибка в send_daily_bonus_message для пользователя {user_id}: {e}")
         return None
-
-    if lang == 'ru':
-        msg = "🎁 Ежедневный бонус доступен!\n\nНажми кнопку для получения:"
-        btn_text = "🎁 Получить бонус"
-    elif lang == 'es':
-        msg = "🎁 ¡Bono diario disponible!\n\nPresiona el botón para recibirlo:"
-        btn_text = "🎁 Recibir bono"
-    else:
-        msg = "🎁 Daily bonus available!\n\nPress button to receive:"
-        btn_text = "🎁 Get bonus"
-
-    markup = types.InlineKeyboardMarkup()
-    markup.add(types.InlineKeyboardButton(btn_text, callback_data='claim_daily_bonus'))
-
-    # ✅ Отправляем сообщение и ждём завершения
-    message = bot.send_message(user_id, msg, reply_markup=markup, parse_mode='HTML')
-
-    # ✅ Сохраняем message_id в базе данных
-    if message:
-        update_user(user_id, bonus_message_id=message.message_id)
-        print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}")
-
-    return message
 
 def is_real_user(obj):
     """
@@ -738,7 +734,8 @@ def migrate_db():
         ("lose_streak", "INTEGER DEFAULT 0"),
         ("is_clean_start", "INTEGER DEFAULT 0"),
         ("first_bonus_claimed", "INTEGER DEFAULT 0"),
-        ("last_bonus_reminder", "REAL DEFAULT 0")
+        ("last_bonus_reminder", "REAL DEFAULT 0"),
+        ("bonus_message_id", "INTEGER DEFAULT 0")
     ]
 
     for col_name, col_type in columns:
@@ -779,6 +776,22 @@ def get_user(user_id):
         print(f"❌ Поле first_bonus_claimed не найдено в таблице!")
         first_bonus_claimed_index = None
 
+    # ✅ Находим индекс поля last_bonus_reminder
+    try:
+        last_bonus_reminder_index = column_names.index('last_bonus_reminder')
+        print(f"✅ Индекс поля last_bonus_reminder: {last_bonus_reminder_index}")
+    except ValueError:
+        print(f"❌ Поле last_bonus_reminder не найдено в таблице!")
+        last_bonus_reminder_index = None
+
+    # ✅ Находим индекс поля bonus_message_id
+    try:
+        bonus_message_id_index = column_names.index('bonus_message_id')
+        print(f"✅ Индекс поля bonus_message_id: {bonus_message_id_index}")
+    except ValueError:
+        print(f"❌ Поле bonus_message_id не найдено в таблице!")
+        bonus_message_id_index = None
+
     cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
@@ -808,6 +821,8 @@ def get_user(user_id):
             'lootbox_uses': safe_get(row, 19, 0),
             'lose_streak': safe_get(row, 20, 0),
             'first_bonus_claimed': safe_get(row, first_bonus_claimed_index if first_bonus_claimed_index is not None else 21, 0),
+            'last_bonus_reminder': safe_get(row, last_bonus_reminder_index if last_bonus_reminder_index is not None else 22, 0),
+            'bonus_message_id': safe_get(row, bonus_message_id_index if bonus_message_id_index is not None else 23, 0),
         }
 
         # ✅ Прямая проверка в базе данных
