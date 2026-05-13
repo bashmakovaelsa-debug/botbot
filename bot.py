@@ -72,6 +72,30 @@ active_reengage_timers = {}
 # Хранилище активных daily bonus reminder-таймеров
 active_bonus_reminders = {}
 
+# Флаг для остановки фоновых задач
+background_tasks_running = True
+
+# ================= DAILY BONUS REMINDER SYSTEM =================
+# Новая архитектура системы напоминаний о ежедневном бонусе:
+#
+# 1. Централизованная система: Один фоновый поток проверяет всех пользователей каждые 5 минут
+# 2. Работает для всех пользователей: Новых и старых (last_daily == 0 или first_bonus_claimed == 0)
+# 3. Надежность: Переживает перезапуск бота благодаря агрессивной инициализации
+# 4. Эффективность: Не создает сотни потоков (всего один фоновый поток)
+# 5. Умная отправка: Не спамит пользователями - проверяет last_bonus_reminder и bonus_message_id
+#
+# Основные функции:
+# - schedule_all_daily_reminders(): Запускает фоновую задачу
+# - check_and_send_daily_reminders(): Основной цикл проверки (каждые 5 минут)
+# - initialize_bonus_reminders(): Агрессивная инициализация при старте
+#
+# Поля в базе данных:
+# - last_daily: Время последнего получения бонуса
+# - first_bonus_claimed: Время первого получения бонуса
+# - last_bonus_reminder: Время последнего отправленного напоминания
+# - bonus_message_id: ID последнего сообщения о бонусе
+#
+
 def reengage_user(user_id):
     time.sleep(600)  # 10 минут
 
@@ -111,126 +135,176 @@ def start_reengage(user_id):
 
 # ================= DAILY BONUS REMINDER SYSTEM =================
 def start_bonus_reminder(user_id):
-    """Запускает reminder-таймер для ежедневного бонуса"""
-    # ✅ Если уже есть активный таймер - не запускаем новый
-    if user_id in active_bonus_reminders:
-        return
-
-    # ✅ Проверяем, нужно ли запускать reminder
-    user = ensure_user(user_id)
-    now = time.time()
-    last_daily = user.get('last_daily', 0)
-
-    if last_daily > 0:
-        time_since_last_bonus = now - last_daily
-        if time_since_last_bonus < 86400:
-            # Если бонус был получен менее 24 часов назад, вычисляем время до следующего
-            time_to_wait = 86400 - time_since_last_bonus
-            print(f"⏰ Устанавливаем reminder для пользователя {user_id} через {time_to_wait} секунд")
-
-            # ✅ Добавляем в активные
-            active_bonus_reminders[user_id] = True
-
-            # Запускаем таймер с вычисленным временем
-            threading.Thread(
-                target=send_bonus_reminder_with_delay,
-                args=(user_id, time_to_wait),
-                daemon=True
-            ).start()
-            return
-
-    # ✅ Добавляем в активные
-    active_bonus_reminders[user_id] = True
-
-    threading.Thread(
-        target=send_bonus_reminder,
-        args=(user_id,),
-        daemon=True
-    ).start()
+    """Запускает reminder-таймер для ежедневного бонуса (устаревшая функция, оставлена для совместимости)"""
+    # Эта функция больше не нужна, так как используется централизованная система
+    # Оставлена для обратной совместимости
+    pass
 
 
 def send_bonus_reminder_with_delay(user_id, delay):
-    """Отправляет reminder-сообщение о ежедневном бонусе с задержкой"""
-    time.sleep(delay)  # Ждем вычисленное время
-
-    try:
-        # ✅ Проверяем, что таймер всё ещё активен
-        if user_id not in active_bonus_reminders:
-            return
-
-        # ✅ Удаляем из активных после выполнения
-        del active_bonus_reminders[user_id]
-
-        # ✅ Проверяем, можно ли получить бонус
-        can_claim, remaining = can_claim_daily_bonus(user_id)
-
-        if not can_claim:
-            print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
-            return
-
-        # ✅ Отправляем reminder-сообщение
-        message = send_daily_bonus_message(user_id)
-
-        if message:
-            print(f"✅ Отправлен reminder о бонусе пользователю {user_id}")
-    except Exception as e:
-        print(f"❌ Ошибка отправки reminder для пользователя {user_id}: {e}")
+    """Отправляет reminder-сообщение о ежедневном бонусе с задержкой (устаревшая функция)"""
+    # Эта функция больше не нужна
+    pass
 
 
 def send_bonus_reminder(user_id):
-    """Отправляет reminder-сообщение о ежедневном бонусе через 24 часа"""
-    time.sleep(86400)  # 24 часа = 86400 секунд
+    """Отправляет reminder-сообщение о ежедневном бонусе через 24 часа (устаревшая функция)"""
+    # Эта функция больше не нужна
+    pass
 
-    try:
-        # ✅ Проверяем, что таймер всё ещё активен
-        if user_id not in active_bonus_reminders:
-            return
 
-        # ✅ Удаляем из активных после выполнения
-        del active_bonus_reminders[user_id]
+def check_and_send_daily_reminders():
+    """
+    Проверяет всех пользователей и отправляет напоминания о ежедневном бонусе.
+    Запускается каждые N минут в отдельном потоке.
+    """
+    while background_tasks_running:
+        try:
+            print("🔍 Проверка пользователей для напоминаний о ежедневном бонусе...")
 
-        # ✅ Проверяем, можно ли получить бонус
-        can_claim, remaining = can_claim_daily_bonus(user_id)
+            conn = sqlite3.connect('bot_database.db')
+            cursor = conn.cursor()
 
-        if not can_claim:
-            print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
-            return
+            # Получаем всех пользователей
+            cursor.execute("SELECT id FROM users")
+            users = cursor.fetchall()
 
-        # ✅ Отправляем reminder-сообщение
-        message = send_daily_bonus_message(user_id)
+            conn.close()
 
-        if message:
-            print(f"✅ Отправлен reminder о бонусе пользователю {user_id}")
-    except Exception as e:
-        print(f"❌ Ошибка отправки reminder для пользователя {user_id}: {e}")
+            now = time.time()
+            reminders_sent = 0
+
+            for (user_id,) in users:
+                try:
+                    # Проверяем, можно ли получить бонус
+                    can_claim, remaining = can_claim_daily_bonus(user_id)
+
+                    if can_claim:
+                        # Проверяем, не было ли уже отправлено напоминание недавно
+                        user = ensure_user(user_id)
+                        last_reminder = user.get('last_bonus_reminder', 0)
+
+                        # Если напоминание не было отправлено в последние 23 часов
+                        if now - last_reminder > 82800:  # 23 часа = 82800 секунд
+                            # Проверяем, есть ли активное сообщение о бонусе
+                            bonus_message_id = user.get('bonus_message_id')
+
+                            # Если нет активного сообщения или оно старое (более 24 часов)
+                            should_send = True
+                            if bonus_message_id:
+                                try:
+                                    # Пытаемся получить информацию о сообщении
+                                    bot.get_chat_message(user_id, bonus_message_id)
+                                    # Если сообщение существует и оно свежее, не отправляем новое
+                                    should_send = False
+                                except Exception:
+                                    # Сообщение не существует или недоступно
+                                    should_send = True
+
+                            if should_send:
+                                message = send_daily_bonus_message(user_id)
+                                if message:
+                                    # Обновляем время последнего напоминания
+                                    update_user(user_id, last_bonus_reminder=now)
+                                    reminders_sent += 1
+                                    print(f"✅ Отправлено напоминание пользователю {user_id}")
+
+                except Exception as e:
+                    print(f"❌ Ошибка обработки пользователя {user_id}: {e}")
+                    continue
+
+            print(f"📊 Отправлено напоминаний: {reminders_sent} из {len(users)} пользователей")
+
+        except Exception as e:
+            print(f"❌ Ошибка в check_and_send_daily_reminders: {e}")
+
+        # Ждем 5 минут перед следующей проверкой
+        for _ in range(300):  # 5 минут = 300 секунд
+            if not background_tasks_running:
+                break
+            time.sleep(1)
+
+
+def schedule_all_daily_reminders():
+    """
+    Запускает централизованную систему напоминаний о ежедневном бонусе.
+    Создает один фоновый поток, который проверяет всех пользователей каждые 5 минут.
+    """
+    print("🚀 Запуск централизованной системы напоминаний о ежедневном бонусе...")
+
+    # Запускаем фоновую задачу
+    reminder_thread = threading.Thread(
+        target=check_and_send_daily_reminders,
+        daemon=True
+    )
+    reminder_thread.start()
+
+    print("✅ Система напоминаний запущена")
 
 
 def initialize_bonus_reminders():
-    """Инициализирует reminder-систему для существующих пользователей"""
-    print("🚀 Инициализация reminder-системы для существующих пользователей...")
+    """
+    Агрессивная инициализация reminder-системы для всех пользователей.
+    Отправляет напоминания всем пользователям, у которых доступен бонус.
+    """
+    print("🚀 Агрессивная инициализация reminder-системы для всех пользователей...")
 
     conn = sqlite3.connect('bot_database.db')
     cursor = conn.cursor()
 
-    # Получаем всех пользователей, у которых есть last_daily
-    cursor.execute("SELECT id, last_daily FROM users WHERE last_daily > 0")
+    # Получаем всех пользователей
+    cursor.execute("SELECT id, last_daily, first_bonus_claimed FROM users")
     users = cursor.fetchall()
 
     conn.close()
 
     now = time.time()
     initialized_count = 0
+    old_users_count = 0
 
-    for user_id, last_daily in users:
-        time_since_last_bonus = now - last_daily
+    for user_id, last_daily, first_bonus_claimed in users:
+        try:
+            # Проверяем, можно ли получить бонус
+            can_claim, remaining = can_claim_daily_bonus(user_id)
 
-        # Запускаем reminder только если прошло менее 24 часов
-        if time_since_last_bonus < 86400:
-            print(f"📋 Пользователь {user_id}: последний бонус был {time_since_last_bonus} секунд назад")
-            start_bonus_reminder(user_id)
-            initialized_count += 1
+            if can_claim:
+                # Проверяем, не было ли уже отправлено напоминание недавно
+                user = ensure_user(user_id)
+                last_reminder = user.get('last_bonus_reminder', 0)
+
+                # Если напоминание не было отправлено в последние 23 часа
+                if now - last_reminder > 82800:  # 23 часа
+                    # Проверяем, есть ли активное сообщение о бонусе
+                    bonus_message_id = user.get('bonus_message_id')
+
+                    # Если нет активного сообщения или оно старое
+                    should_send = True
+                    if bonus_message_id:
+                        try:
+                            bot.get_chat_message(user_id, bonus_message_id)
+                            should_send = False
+                        except Exception:
+                            should_send = True
+
+                    if should_send:
+                        message = send_daily_bonus_message(user_id)
+                        if message:
+                            update_user(user_id, last_bonus_reminder=now)
+                            initialized_count += 1
+                            print(f"✅ Инициализировано напоминание для пользователя {user_id}")
+
+            # Считаем старых пользователей
+            if last_daily == 0 or first_bonus_claimed == 0:
+                old_users_count += 1
+                print(f"📋 Старый пользователь {user_id}: last_daily={last_daily}, first_bonus_claimed={first_bonus_claimed}")
+
+        except Exception as e:
+            print(f"❌ Ошибка инициализации пользователя {user_id}: {e}")
+            continue
 
     print(f"✅ Reminder-система инициализирована для {initialized_count} пользователей")
+    print(f"📊 Обработано старых пользователей: {old_users_count}")
+    print(f"📊 Всего пользователей в базе: {len(users)}")
 
 
 # ================= ПОСЛЕДОВАТЕЛЬНЫЙ ONBOARDING =================
@@ -663,7 +737,8 @@ def migrate_db():
         ("lootbox_uses", "INTEGER DEFAULT 0"),
         ("lose_streak", "INTEGER DEFAULT 0"),
         ("is_clean_start", "INTEGER DEFAULT 0"),
-        ("first_bonus_claimed", "INTEGER DEFAULT 0")
+        ("first_bonus_claimed", "INTEGER DEFAULT 0"),
+        ("last_bonus_reminder", "REAL DEFAULT 0")
     ]
 
     for col_name, col_type in columns:
@@ -1755,8 +1830,8 @@ def ensure_user(user_id):
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO users (id, lang, ref_by, referrals, bonus, reward_given, subscribed, last_link_time, created_at, last_daily, first_bonus_claimed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, lang, ref_by, referrals, bonus, reward_given, subscribed, last_link_time, created_at, last_daily, first_bonus_claimed, last_bonus_reminder)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         user_id,
         None,
@@ -1768,13 +1843,14 @@ def ensure_user(user_id):
         0,
         int(time.time()),
         0,  # ✅ Добавляем last_daily = 0 для новых пользователей
-        0   # ✅ Добавляем first_bonus_claimed = 0 для новых пользователей
+        0,  # ✅ Добавляем first_bonus_claimed = 0 для новых пользователей
+        0   # ✅ Добавляем last_bonus_reminder = 0 для новых пользователей
     ))
 
     conn.commit()
     conn.close()
 
-    print(f"✅ Создан новый пользователь {user_id} с last_daily=0, first_bonus_claimed=0")
+    print(f"✅ Создан новый пользователь {user_id} с last_daily=0, first_bonus_claimed=0, last_bonus_reminder=0")
 
     return get_user(user_id)
 
@@ -3526,8 +3602,12 @@ if __name__ == '__main__':
     print('⚠️  Добавь бота как администратора во все каналы!')
     print('⚠️  Особенно важно: права "Просматривать сообщения" + "Удалять сообщения" в LITE канале')
 
-    # Инициализация
+    # Инициализация системы напоминаний о ежедневном бонусе
+    print("🎁 Инициализация системы ежедневных бонусов...")
     initialize_bonus_reminders()
+
+    # Запуск централизованной системы напоминаний
+    schedule_all_daily_reminders()
 
     # Системы подписок
     start_subscription_checker()
