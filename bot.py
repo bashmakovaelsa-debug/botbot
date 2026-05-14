@@ -1460,6 +1460,10 @@ def check_and_remove_expired_subscriptions():
 
     now = time.time()
 
+    # Счётчик для старых пользователей
+    old_system_count = 0
+    old_system_processed = 0
+
     # Находим истекшие подписки
     cursor.execute('''
         SELECT id, user_id, type, channel_id, expires_at
@@ -1533,6 +1537,70 @@ def check_and_remove_expired_subscriptions():
             # Если есть активные подписки - оставляем в канале
             max_exp = get_max_expiration(user_id, int(channel_id))
             print(f"✅ У пользователя {user_id} есть активные подписки на {channel_name} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(max_exp))}")
+
+    # Проверяем пользователей со старой системой paid_until
+    print(f"🔍 Проверка старых пользователей с paid_until...")
+    conn_old = sqlite3.connect('bot_database.db')
+    cursor_old = conn_old.cursor()
+    cursor_old.execute('''
+        SELECT id FROM users
+        WHERE paid_until > 0 AND paid_until <= ? AND paid_forever = 0
+    ''', (now,))
+    old_system_expired = cursor_old.fetchall()
+    old_system_count = len(old_system_expired)
+    conn_old.close()
+
+    if old_system_count > 0:
+        print(f"📊 Найдено {old_system_count} старых пользователей с истёкшим paid_until")
+
+    for (user_id,) in old_system_expired:
+        old_system_processed += 1
+        print(f"🔍 Найден старый пользователь с истёкшим paid_until: {user_id}")
+
+        # Получаем информацию о пользователе для проверки рефералов
+        user = get_user(user_id)
+        if not user:
+            print(f"⚠️ Пользователь {user_id} не найден в базе данных")
+            continue
+
+        # Проверяем, нет ли у него активной подписки в новой системе
+        has_active_new_system = has_active_subscription(user_id, SECRET_CHANNEL_ID)
+
+        # Проверяем, нет ли 20+ рефералов
+        referrals_count = 0
+        if user.get('referrals'):
+            try:
+                referrals = json.loads(user['referrals'])
+                if isinstance(referrals, list):
+                    referrals_count = len(referrals)
+            except (json.JSONDecodeError, TypeError):
+                referrals_count = 0
+
+        has_20_plus_referrals = referrals_count >= 20
+
+        # Если ни активной подписки в новой системе, ни 20+ рефералов - кикаем
+        if not has_active_new_system and not has_20_plus_referrals:
+            print(f"🚫 У пользователя {user_id} нет активной подписки и menos 20 рефералов, удаляем из GOLD канала")
+
+            try:
+                kick_success = kick_user_from_channel(user_id, SECRET_CHANNEL_ID)
+                if kick_success:
+                    print(f"✅ Старый пользователь {user_id} успешно удален из SD FETISH GOLD")
+                else:
+                    print(f"⚠️ Не удалось удалить старого пользователя {user_id} из SD FETISH GOLD")
+            except Exception as e:
+                print(f"❌ Ошибка удаления старого пользователя {user_id} из SD FETISH GOLD: {e}")
+        else:
+            reason = []
+            if has_active_new_system:
+                reason.append("активная подписка в новой системе")
+            if has_20_plus_referrals:
+                reason.append(f"{referrals_count} рефералов")
+
+            print(f"✅ Пользователь {user_id} остаётся в канале: {' и '.join(reason)}")
+
+    if old_system_count > 0:
+        print(f"✅ Обработано {old_system_processed} старых пользователей из {old_system_count}")
 
 
 def start_subscription_checker():
