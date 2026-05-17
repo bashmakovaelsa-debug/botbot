@@ -13,6 +13,8 @@ import io
 import os
 import psycopg2
 import psycopg2.extras
+import subprocess
+subprocess.run([sys.executable, "-m", "pip", "install", "psycopg2-binary"], check=True)
 
 # Устанавливаем UTF-8 кодировку для вывода в Windows
 if sys.platform == 'win32':
