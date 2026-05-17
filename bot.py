@@ -1,3 +1,6 @@
+import subprocess
+import sys
+subprocess.run([sys.executable, '-m', 'pip', 'install', 'psycopg2-binary'], check=True)
 import json
 import telebot
 from telebot import types
@@ -8,9 +11,7 @@ import threading
 import random
 from enum import Enum
 import sys
-import subprocess
 import sys
-subprocess.run([sys.executable, "-m", "pip", "install", "psycopg2-binary"], check=True)
 import io
 import os
 import psycopg2
