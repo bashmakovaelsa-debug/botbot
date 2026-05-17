@@ -11,6 +11,8 @@ from enum import Enum
 import sys
 import io
 import os
+import psycopg2
+import psycopg2.extras
 
 # Устанавливаем UTF-8 кодировку для вывода в Windows
 if sys.platform == 'win32':
@@ -19,6 +21,9 @@ if sys.platform == 'win32':
         sys.stderr.reconfigure(encoding='utf-8')
     except AttributeError:
         pass  # IDE перехватывает stdout, пропускаем
+
+# Database URL for PostgreSQL
+DB_URL = "postgresql://bothost_db_59da6d3fff71:DVNH38JY8ZDUvLwpYfAecxENXkpj1i2m4bj5ix6xY-Q@node1.pghost.ru:15690/bothost_db_59da6d3fff71"
 
 import os
 
@@ -272,15 +277,16 @@ def initialize_bonus_reminders():
                     bonus_message_id = user.get('bonus_message_id')
 
                     # Если нет активного сообщения или оно старое
-                    should_send = True
                     if bonus_message_id and bonus_message_id != 0:
                         # Если есть активное сообщение и напоминание было недавно, не отправляем новое
                         should_send = False
+                    else:
+                        should_send = True
 
                     if should_send:
                         message = send_daily_bonus_message(user_id)
                         if message:
-                            update_user(user_id, last_bonus_reminder=now)
+                            update_user(user_id, last_bonus_reminder=now, bonus_message_id=message.message_id)
                             initialized_count += 1
                             print(f"✅ Инициализировано напоминание для пользователя {user_id}")
 
@@ -523,7 +529,7 @@ def send_daily_bonus_message(user_id):
             msg = "🎁 Ежедневный бонус доступен!\n\nНажми кнопку для получения:"
             btn_text = "🎁 Получить бонус"
         elif lang == 'es':
-            msg = "🎁 ¡Bono diario disponible!\n\nPresiona el botón para recibirlo:"
+            msg = "🎁 ¡Bono diario disponible!\n\nPresiona el botón для получения:"
             btn_text = "🎁 Recibir bono"
         else:
             msg = "🎁 Daily bonus available!\n\nPress button to receive:"
@@ -544,6 +550,34 @@ def send_daily_bonus_message(user_id):
 
     except Exception as e:
         print(f"❌ Ошибка в send_daily_bonus_message для пользователя {user_id}: {e}")
+        return None
+
+
+def send_lootbox_reminder(user_id):
+    """Отправляет напоминание об открытии кейса"""
+    try:
+        user = ensure_user(user_id)
+        lang = user.get('lang') or 'en'
+
+        msgs = {
+            'ru': "🎰 Твой кейс перезарядился!\n\nОткрой кейс и забери награду:",
+            'es': "🎰 ¡Tu caja se recargó!\n\nAbre la caja и recoge tu recompensa:",
+            'en': "🎰 Your case has recharged!\n\nOpen the case and claim your reward:",
+            'hi': "🎰 आपके केस को रिचार्ज कर दिया गया!\n\nकेस खोलें और अपना इनाम प्राप्त करें:",
+            'id': "🎰 Kasus Anda telah diisi ulang!\n\nBuka kasus dan klaim hadiah Anda:"
+        }
+        msg = msgs.get(lang, msgs['en'])
+
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton(t(user_id, 'lootbox_btn'), callback_data='lootbox'))
+
+        # ✅ Отправляем сообщение и ждём завершения
+        message = bot.send_message(user_id, msg, reply_markup=markup, parse_mode='HTML')
+
+        return message
+
+    except Exception as e:
+        print(f"❌ Ошибка в send_lootbox_reminder для пользователя {user_id}: {e}")
         return None
 
 def is_real_user(obj):
@@ -640,224 +674,184 @@ def create_invite_link_for_user(chat_id, user_id):
         print(f"❌ Исключение при создании ссылки: {e}")
         return None
 
-# ================= DATABASE (SQLite) =================
+# ================= DATABASE (PostgreSQL) =================
 def init_db():
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
+        id BIGINT PRIMARY KEY,
         lang TEXT,
-        ref_by INTEGER,
+        ref_by BIGINT,
         referrals TEXT,
-        bonus INTEGER DEFAULT 0,
-        reward_given INTEGER DEFAULT 0,
-        subscribed INTEGER DEFAULT 0,
-        last_link_time REAL DEFAULT 0,
-        created_at REAL DEFAULT 0,
-        ref_count_today INTEGER DEFAULT 0,
-        last_ref_time REAL DEFAULT 0,
-        secret_unlocked INTEGER DEFAULT 0,
-        paid_until REAL DEFAULT 0,
-        paid_forever INTEGER DEFAULT 0,
-        is_clean_start INTEGER DEFAULT 0,
+        bonus INTEGER,
+        reward_given INTEGER,
+        subscribed INTEGER,
+        last_link_time DOUBLE PRECISION,
+        created_at DOUBLE PRECISION,
+        ref_count_today INTEGER,
+        last_ref_time DOUBLE PRECISION,
+        secret_unlocked INTEGER,
+        paid_until DOUBLE PRECISION,
+        paid_forever INTEGER,
+        is_clean_start INTEGER,
         source TEXT DEFAULT 'telegram',
-        funnel_step INTEGER DEFAULT 0
-    )
+        funnel_step INTEGER,
+        last_daily DOUBLE PRECISION DEFAULT 0,
+        first_bonus_claimed DOUBLE PRECISION DEFAULT 0,
+        last_bonus_reminder DOUBLE PRECISION DEFAULT 0,
+        bonus_message_id INTEGER DEFAULT 0,
+        last_lootbox DOUBLE PRECISION DEFAULT 0,
+        lootbox_uses INTEGER DEFAULT 0,
+        lose_streak INTEGER DEFAULT 0
+        )
     ''')
-
-    # Миграция: добавляем колонки, если их нет
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN is_clean_start INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # Колонка уже существует
-
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN source TEXT DEFAULT 'telegram'")
-    except sqlite3.OperationalError:
-        pass  # Колонка уже существует
-
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN funnel_step INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # Колонка уже существует
 
     # Таблица подписок
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
+        id BIGSERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
         type TEXT NOT NULL,
         channel_id TEXT NOT NULL,
-        granted_at REAL NOT NULL,
-        expires_at REAL NOT NULL,
-        active INTEGER DEFAULT 1,
+        granted_at DOUBLE PRECISION NOT NULL,
+        expires_at DOUBLE PRECISION NOT NULL,
+        active BOOLEAN DEFAULT TRUE,
         FOREIGN KEY (user_id) REFERENCES users(id)
         )
     ''')
 
     conn.commit()
     conn.close()
-    
 def migrate_db():
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
-    # ✅ Проверяем, существует ли поле last_daily
-    cursor.execute("PRAGMA table_info(users)")
-    columns_info = cursor.fetchall()
-    column_names = [col[1] for col in columns_info]
+    # Check if columns exist and add them if they don't
+    # For PostgreSQL, we need to check information_schema
+    try:
+        cursor.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'users'
+        """)
+        existing_columns = [row[0] for row in cursor.fetchall()]
+        print(f"[DB] Current columns in users table: {existing_columns}")
 
-    print(f"[DB] Current columns in users table: {column_names}")
+        # Define columns to check/add
+        columns_to_check = [
+            ("last_daily", "DOUBLE PRECISION DEFAULT 0"),
+            ("created_at", "DOUBLE PRECISION DEFAULT 0"),
+            ("ref_count_today", "INTEGER DEFAULT 0"),
+            ("last_ref_time", "DOUBLE PRECISION DEFAULT 0"),
+            ("secret_unlocked", "INTEGER DEFAULT 0"),
+            ("paid_until", "DOUBLE PRECISION DEFAULT 0"),
+            ("paid_forever", "INTEGER DEFAULT 0"),
+            ("source", "TEXT DEFAULT 'telegram'"),
+            ("funnel_step", "INTEGER DEFAULT 0"),
+            ("last_lootbox", "DOUBLE PRECISION DEFAULT 0"),
+            ("lootbox_uses", "INTEGER DEFAULT 0"),
+            ("lose_streak", "INTEGER DEFAULT 0"),
+            ("is_clean_start", "INTEGER DEFAULT 0"),
+            ("first_bonus_claimed", "DOUBLE PRECISION DEFAULT 0"),
+            ("last_bonus_reminder", "DOUBLE PRECISION DEFAULT 0"),
+            ("bonus_message_id", "INTEGER DEFAULT 0"),
+            ("last_lootbox_reminder", "DOUBLE PRECISION DEFAULT 0")
+        ]
 
-    if 'last_daily' not in column_names:
-        print("[DB] last_daily field not found, adding...")
-        try:
-            cursor.execute("ALTER TABLE users ADD COLUMN last_daily REAL DEFAULT 0")
-            print("[DB] last_daily field successfully added")
-        except sqlite3.OperationalError as e:
-            print(f"[DB] Error adding last_daily field: {e}")
-    else:
-        print("[DB] last_daily field already exists")
+        for col_name, col_type in columns_to_check:
+            if col_name not in existing_columns:
+                print(f"[DB] {col_name} field not found, adding...")
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                    print(f"[DB] {col_name} field successfully added")
+                except Exception as e:
+                    print(f"[DB] Error adding {col_name} field: {e}")
+            else:
+                print(f"[DB] {col_name} field already exists")
 
-    columns = [
-        ("created_at", "REAL DEFAULT 0"),
-        ("ref_count_today", "INTEGER DEFAULT 0"),
-        ("last_ref_time", "REAL DEFAULT 0"),
-        ("secret_unlocked", "INTEGER DEFAULT 0"),
-        ("paid_until", "REAL DEFAULT 0"),
-        ("paid_forever", "INTEGER DEFAULT 0"),
-        ("source", "TEXT DEFAULT 'telegram'"),
-        ("funnel_step", "INTEGER DEFAULT 0"),
-        ("last_lootbox", "REAL DEFAULT 0"),
-        ("lootbox_uses", "INTEGER DEFAULT 0"),
-        ("lose_streak", "INTEGER DEFAULT 0"),
-        ("is_clean_start", "INTEGER DEFAULT 0"),
-        ("first_bonus_claimed", "INTEGER DEFAULT 0"),
-        ("last_bonus_reminder", "REAL DEFAULT 0"),
-        ("bonus_message_id", "INTEGER DEFAULT 0")
-    ]
-
-    for col_name, col_type in columns:
-        if col_name not in column_names:
-            try:
-                cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
-                print(f"[DB] Добавлена колонка: {col_name}")
-            except sqlite3.OperationalError:
-                pass
+    except Exception as e:
+        print(f"[DB] Error checking table structure: {e}")
 
     conn.commit()
     conn.close()
 
 def get_user(user_id):
-    conn = sqlite3.connect('bot_database.db')
-    cursor = conn.cursor()
+    conn = psycopg2.connect(DB_URL)
+    cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-    # ✅ Получаем информацию о колонках
-    cursor.execute("PRAGMA table_info(users)")
-    columns_info = cursor.fetchall()
-    column_names = [col[1] for col in columns_info]
-
-    print(f"📊 Структура таблицы users: {column_names}")
-
-    # ✅ Находим индекс поля last_daily
-    try:
-        last_daily_index = column_names.index('last_daily')
-        print(f"✅ Индекс поля last_daily: {last_daily_index}")
-    except ValueError:
-        print(f"❌ Поле last_daily не найдено в таблице!")
-        last_daily_index = None
-
-    # ✅ Находим индекс поля first_bonus_claimed
-    try:
-        first_bonus_claimed_index = column_names.index('first_bonus_claimed')
-        print(f"✅ Индекс поля first_bonus_claimed: {first_bonus_claimed_index}")
-    except ValueError:
-        print(f"❌ Поле first_bonus_claimed не найдено в таблице!")
-        first_bonus_claimed_index = None
-
-    # ✅ Находим индекс поля last_bonus_reminder
-    try:
-        last_bonus_reminder_index = column_names.index('last_bonus_reminder')
-        print(f"✅ Индекс поля last_bonus_reminder: {last_bonus_reminder_index}")
-    except ValueError:
-        print(f"❌ Поле last_bonus_reminder не найдено в таблице!")
-        last_bonus_reminder_index = None
-
-    # ✅ Находим индекс поля bonus_message_id
-    try:
-        bonus_message_id_index = column_names.index('bonus_message_id')
-        print(f"✅ Индекс поля bonus_message_id: {bonus_message_id_index}")
-    except ValueError:
-        print(f"❌ Поле bonus_message_id не найдено в таблице!")
-        bonus_message_id_index = None
-
-    cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
     row = cursor.fetchone()
     conn.close()
 
-    def safe_get(row, index, default=None):
-        return row[index] if len(row) > index else default
-
     if row:
-        user_data = {
-            'id': row[0],
-            'lang': row[1],
-            'ref_by': row[2],
-            'referrals': json.loads(row[3]) if row[3] else [],
-            'bonus': row[4],
-            'reward_given': bool(row[5]),
-            'subscribed': bool(row[6]),
-            'last_link_time': row[7],
-            'created_at': safe_get(row, 8, 0),
-            'ref_count_today': safe_get(row, 9, 0),
-            'last_ref_time': safe_get(row, 10, 0),
-            'secret_unlocked': safe_get(row, 11, 0),
-            'source': safe_get(row, 14, 'telegram'),
-            'funnel_step': safe_get(row, 15, 0),
-            'is_clean_start': safe_get(row, 16, 0),
-            'last_daily': safe_get(row, last_daily_index if last_daily_index is not None else 17, 0),
-            'last_lootbox': safe_get(row, 18, 0),
-            'lootbox_uses': safe_get(row, 19, 0),
-            'lose_streak': safe_get(row, 20, 0),
-            'first_bonus_claimed': safe_get(row, first_bonus_claimed_index if first_bonus_claimed_index is not None else 21, 0),
-            'last_bonus_reminder': safe_get(row, last_bonus_reminder_index if last_bonus_reminder_index is not None else 22, 0),
-            'bonus_message_id': safe_get(row, bonus_message_id_index if bonus_message_id_index is not None else 23, 0),
+        # Convert psycopg2 DictRow to regular dict for compatibility
+        user_data = dict(row)
+
+        # Handle JSON referrals field
+        if user_data['referrals']:
+            if isinstance(user_data['referrals'], str):
+                user_data['referrals'] = json.loads(user_data['referrals'])
+            elif user_data['referrals'] is None:
+                user_data['referrals'] = []
+        else:
+            user_data['referrals'] = []
+
+        # Convert boolean fields from int to bool if needed
+        if 'reward_given' in user_data:
+            user_data['reward_given'] = bool(user_data['reward_given'])
+        if 'subscribed' in user_data:
+            user_data['subscribed'] = bool(user_data['subscribed'])
+        if 'is_clean_start' in user_data:
+            user_data['is_clean_start'] = bool(user_data['is_clean_start'])
+        if 'paid_forever' in user_data:
+            user_data['paid_forever'] = bool(user_data['paid_forever'])
+
+        # Ensure numeric fields are proper types
+        for field in ['bonus', 'lootbox_uses', 'lose_streak', 'ref_count_today']:
+            if field in user_data and user_data[field] is None:
+                user_data[field] = 0
+
+        for field in ['created_at', 'last_link_time', 'last_daily', 'first_bonus_claimed',
+                     'last_bonus_reminder', 'last_lootbox', 'paid_until', 'last_ref_time']:
+            if field in user_data and user_data[field] is None:
+                user_data[field] = 0
+
+        # Set defaults for missing fields (for backward compatibility)
+        defaults = {
+            'lang': None,
+            'ref_by': None,
+            'bonus': 0,
+            'reward_given': 0,
+            'subscribed': 0,
+            'last_link_time': 0,
+            'created_at': 0,
+            'ref_count_today': 0,
+            'last_ref_time': 0,
+            'secret_unlocked': 0,
+            'source': 'telegram',
+            'funnel_step': 0,
+            'is_clean_start': 0,
+            'last_daily': 0,
+            'first_bonus_claimed': 0,
+            'last_bonus_reminder': 0,
+            'bonus_message_id': 0,
+            'last_lootbox': 0,
+            'lootbox_uses': 0,
+            'lose_streak': 0,
+            'last_lootbox_reminder': 0
         }
 
-        # ✅ Прямая проверка в базе данных
-        conn_check = sqlite3.connect('bot_database.db')
-        cursor_check = conn_check.cursor()
-        cursor_check.execute("SELECT last_daily, bonus FROM users WHERE id = ?", (user_id,))
-        result_check = cursor_check.fetchone()
-        conn_check.close()
-
-        if result_check:
-            db_last_daily, db_bonus = result_check
-            print(f"🔍 get_user для {user_id}:")
-            print(f"   Из функции: last_daily={user_data['last_daily']}, bonus={user_data['bonus']}")
-            print(f"   Из базы напрямую: last_daily={db_last_daily}, bonus={db_bonus}")
-
-            if user_data['last_daily'] != db_last_daily:
-                print(f"   ❌ РАСХОЖДЕНИЕ: last_daily не совпадает! Используем значение из базы.")
-                user_data['last_daily'] = db_last_daily
-            if user_data['bonus'] != db_bonus:
-                print(f"   ❌ РАСХОЖДЕНИЕ: bonus не совпадает! Используем значение из базы.")
-                user_data['bonus'] = db_bonus
+        for field, default_value in defaults.items():
+            if field not in user_data:
+                user_data[field] = default_value
 
         return user_data
     return None
 
 def update_user(user_id, **kwargs):
-    # ✅ Используем WAL режим для лучшей совместимости
-    conn = sqlite3.connect('bot_database.db', timeout=30.0)
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
-
-    # ✅ Включаем WAL режим
-    try:
-        cursor.execute("PRAGMA journal_mode=WAL")
-    except:
-        pass  # Игнорируем ошибки WAL режима
 
     # ✅ Начинаем транзакцию
     try:
@@ -866,19 +860,10 @@ def update_user(user_id, **kwargs):
                 value = json.dumps(value)
             elif isinstance(value, bool):
                 value = int(value)
-            cursor.execute(f"UPDATE users SET {key} = ? WHERE id = ?", (value, user_id))
+            cursor.execute(f"UPDATE users SET {key} = %s WHERE id = %s", (value, user_id))
 
         conn.commit()
         print(f"✅ Обновлён пользователь {user_id}: {list(kwargs.keys())}")
-
-        # ✅ Проверяем, что изменения сохранились
-        if 'last_daily' in kwargs:
-            cursor.execute("SELECT last_daily FROM users WHERE id = ?", (user_id,))
-            saved_value = cursor.fetchone()
-            if saved_value:
-                print(f"   Проверка: last_daily в базе = {saved_value[0]}, должно быть = {kwargs['last_daily']}")
-                if saved_value[0] != kwargs['last_daily']:
-                    print(f"   ❌ ОШИБКА: Значение не сохранилось!")
 
     except Exception as e:
         conn.rollback()
@@ -892,7 +877,7 @@ migrate_db()
 
 # ✅ Проверка целостности базы данных
 def check_db_integrity():
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
     # Проверяем, есть ли пользователи с last_daily = 0 но с бонусами
@@ -1738,6 +1723,13 @@ TEXTS = {
         'hi': '🎁 केस खोलें',
         'id': '🎁 Buka case'
     },
+    'daily_bonus_btn': {
+        'en': '🎁 Daily bonus',
+        'es': '🎁 Bono diario',
+        'ru': '🎁 Ежедневный бонус',
+        'hi': '🎁 दैनिक बोनस',
+        'id': '🎁 Bonus harian'
+    },
     'back': {
         'en': '🔙 Back',
         'es': '🔙 Volver',
@@ -1909,12 +1901,12 @@ def ensure_user(user_id):
         return user
 
     # если пользователя нет — создаём
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
     cursor.execute("""
-        INSERT INTO users (id, lang, ref_by, referrals, bonus, reward_given, subscribed, last_link_time, created_at, last_daily, first_bonus_claimed, last_bonus_reminder)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO users (id, lang, ref_by, referrals, bonus, reward_given, subscribed, last_link_time, created_at, last_daily, first_bonus_claimed, last_bonus_reminder, last_lootbox_reminder)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         user_id,
         None,
@@ -1927,7 +1919,8 @@ def ensure_user(user_id):
         int(time.time()),
         0,  # ✅ Добавляем last_daily = 0 для новых пользователей
         0,  # ✅ Добавляем first_bonus_claimed = 0 для новых пользователей
-        0   # ✅ Добавляем last_bonus_reminder = 0 для новых пользователей
+        0,  # ✅ Добавляем last_bonus_reminder = 0 для новых пользователей
+        0   # ✅ Добавляем last_lootbox_reminder = 0 для новых пользователей
     ))
 
     conn.commit()
@@ -2012,6 +2005,11 @@ def menu_markup(user_id):
     markup.add(types.InlineKeyboardButton(
         t(user_id, 'lootbox_btn'),
         callback_data='lootbox'
+    ))
+
+    markup.add(types.InlineKeyboardButton(
+        t(user_id, 'daily_bonus_btn'),
+        callback_data='daily_bonus'
     ))
 
     markup.row(
