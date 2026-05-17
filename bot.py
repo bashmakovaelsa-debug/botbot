@@ -1,12 +1,8 @@
 import os
 os.environ['PYTHONUNBUFFERED'] = '1'
-import subprocess
 import sys
-
-try:
-    import psycopg2
-except ImportError:
-    subprocess.run([sys.executable, '-m', 'pip', 'install', 'psycopg2-binary'], check=True)
+sys.stdout.reconfigure(line_buffering=True)
+sys.stderr.reconfigure(line_buffering=True)
 import json
 import telebot
 from telebot import types
@@ -2995,6 +2991,12 @@ def callback(call):
         current_step = user.get('funnel_step', 0)
         if current_step == FUNNEL_BONUS:
             process_onboarding_step(user_id, FUNNEL_SUBSCRIPTION)
+
+    # Обработка нажатия на кнопку ежедневного бонуса (показ сообщения о доступном бонусе)
+    elif call.data == 'daily_bonus':
+        bot.answer_callback_query(call.id)
+        send_daily_bonus_message(user_id)
+        return
 
     # Обработка подтверждения подписки
     # ================= СУЩЕСТВУЮЩАЯ ЛОГИКА =================
