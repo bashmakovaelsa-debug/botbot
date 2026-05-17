@@ -1,4 +1,3 @@
-import sqlite3
 import json
 import telebot
 from telebot import types
@@ -13,8 +12,6 @@ import io
 import os
 import psycopg2
 import psycopg2.extras
-import subprocess
-subprocess.run([sys.executable, "-m", "pip", "install", "psycopg2-binary"], check=True)
 
 # Устанавливаем UTF-8 кодировку для вывода в Windows
 if sys.platform == 'win32':
@@ -169,7 +166,7 @@ def check_and_send_daily_reminders():
         try:
             print("🔍 Проверка пользователей для напоминаний о ежедневном бонусе...")
 
-            conn = sqlite3.connect('bot_database.db')
+            conn = psycopg2.connect(DB_URL)
             cursor = conn.cursor()
 
             # Получаем всех пользователей
@@ -250,7 +247,7 @@ def initialize_bonus_reminders():
     """
     print("🚀 Агрессивная инициализация reminder-системы для всех пользователей...")
 
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
     # Получаем всех пользователей
@@ -1058,8 +1055,8 @@ def admin_callback(call):
     if call.from_user.id not in ADMIN_IDS:
         bot.answer_callback_query(call.id, "Нет прав!", show_alert=True)
         return
-        
-    conn = sqlite3.connect('bot_database.db')
+
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
     
     if call.data == 'adm_stats':
@@ -1086,7 +1083,7 @@ def admin_callback(call):
     conn.close()
 
 def process_broadcast(message):
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users")
     users = cursor.fetchall()
@@ -1225,7 +1222,7 @@ check_hub_channels_setup()
 # ================= СИСТЕМА ПОДПИСОК =================
 def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL_ID):
     """Добавляет подписку пользователю"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
     now = time.time()
@@ -1233,8 +1230,8 @@ def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL
 
     cursor.execute('''
         INSERT INTO subscriptions (user_id, type, channel_id, granted_at, expires_at, active)
-        VALUES (?, ?, ?, ?, ?, 1)
-    ''', (user_id, sub_type, str(channel_id), now, expires_at))
+        VALUES (%s, %s, %s, %s, %s, %s)
+    ''', (user_id, sub_type, str(channel_id), now, expires_at, True))
 
     sub_id = cursor.lastrowid
     conn.commit()
@@ -1246,14 +1243,14 @@ def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL
 
 def get_active_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     """Получает активные подписки пользователя"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
     now = time.time()
     cursor.execute('''
         SELECT id, type, channel_id, granted_at, expires_at, active
         FROM subscriptions
-        WHERE user_id = ? AND channel_id = ? AND active = 1 AND expires_at > ?
+        WHERE user_id = %s AND channel_id = %s AND active = 1 AND expires_at > %s
         ORDER BY expires_at DESC
     ''', (user_id, str(channel_id), now))
 
@@ -1293,10 +1290,10 @@ def has_active_subscription(user_id, channel_id=SECRET_CHANNEL_ID):
 
 def deactivate_subscription(sub_id):
     """Деактивирует подписку"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
-    cursor.execute('UPDATE subscriptions SET active = 0 WHERE id = ?', (sub_id,))
+    cursor.execute('UPDATE subscriptions SET active = 0 WHERE id = %s', (sub_id,))
 
     conn.commit()
     conn.close()
@@ -1306,12 +1303,12 @@ def deactivate_subscription(sub_id):
 
 def deactivate_all_user_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     """Деактивирует все подписки пользователя"""
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
     cursor.execute('''
         UPDATE subscriptions SET active = 0
-        WHERE user_id = ? AND channel_id = ?
+        WHERE user_id = %s AND channel_id = %s
     ''', (user_id, str(channel_id)))
 
     conn.commit()
@@ -1374,9 +1371,9 @@ def test_lite_subscription_system():
     # Очистка тестовых данных
     print("🧹 Очистка тестовых данных...")
     try:
-        conn = sqlite3.connect('bot_database.db')
+        conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM subscriptions WHERE user_id = ?", (test_user_id,))
+        cursor.execute("DELETE FROM subscriptions WHERE user_id = %s", (test_user_id,))
         conn.commit()
         conn.close()
         print(f"✅ Тестовые данные удалены")
@@ -1442,7 +1439,7 @@ def check_and_remove_expired_subscriptions():
     """Проверяет и удаляет истекшие подписки каждые 10 минут"""
     print(f"🔍 Проверка истекших подписок... {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
     now = time.time()
@@ -1455,7 +1452,7 @@ def check_and_remove_expired_subscriptions():
     cursor.execute('''
         SELECT id, user_id, type, channel_id, expires_at
         FROM subscriptions
-        WHERE active = 1 AND expires_at <= ?
+        WHERE active = 1 AND expires_at <= %s
         ORDER BY expires_at ASC
     ''', (now,))
 
@@ -1527,11 +1524,11 @@ def check_and_remove_expired_subscriptions():
 
     # Проверяем пользователей со старой системой paid_until
     print(f"🔍 Проверка старых пользователей с paid_until...")
-    conn_old = sqlite3.connect('bot_database.db')
+    conn_old = psycopg2.connect(DB_URL)
     cursor_old = conn_old.cursor()
     cursor_old.execute('''
         SELECT id FROM users
-        WHERE paid_until > 0 AND paid_until <= ? AND paid_forever = 0
+        WHERE paid_until > 0 AND paid_until <= %s AND paid_forever = 0
     ''', (now,))
     old_system_expired = cursor_old.fetchall()
     old_system_count = len(old_system_expired)
@@ -1941,13 +1938,13 @@ def t(user_id, key, **kwargs):
 
 
 def get_ref_link(user_id):
-    return f'https://t.me/{BOT_USERNAME}?start={user_id}'
+    return f'https://t.me/{BOT_USERNAME}%sstart={user_id}'
 
 
 def get_share_url(user_id):
     link = get_ref_link(user_id)
     text = t(user_id, 'share_text')
-    return f'https://t.me/share/url?url={quote(link)}&text={quote(text)}'
+    return f'https://t.me/share/url%surl={quote(link)}&text={quote(text)}'
 
 
 # ================= KEYBOARDS =================
@@ -2233,9 +2230,9 @@ def daily_bonus(user_id, bonus_message_id=None):
     update_user(user_id, **update_data)
 
     # ✅ Прямая проверка в базе данных
-    conn = sqlite3.connect('bot_database.db')
+    conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
-    cursor.execute("SELECT last_daily, bonus, first_bonus_claimed FROM users WHERE id = ?", (user_id,))
+    cursor.execute("SELECT last_daily, bonus, first_bonus_claimed FROM users WHERE id = %s", (user_id,))
     result = cursor.fetchone()
     conn.close()
 
