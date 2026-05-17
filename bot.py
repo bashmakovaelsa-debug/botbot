@@ -8,6 +8,9 @@ import threading
 import random
 from enum import Enum
 import sys
+import subprocess
+import sys
+subprocess.run([sys.executable, "-m", "pip", "install", "psycopg2-binary"], check=True)
 import io
 import os
 import psycopg2
@@ -1231,9 +1234,10 @@ def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL
     cursor.execute('''
         INSERT INTO subscriptions (user_id, type, channel_id, granted_at, expires_at, active)
         VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
     ''', (user_id, sub_type, str(channel_id), now, expires_at, True))
 
-    sub_id = cursor.lastrowid
+    sub_id = cursor.fetchone()[0]
     conn.commit()
     conn.close()
 
@@ -1250,7 +1254,7 @@ def get_active_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     cursor.execute('''
         SELECT id, type, channel_id, granted_at, expires_at, active
         FROM subscriptions
-        WHERE user_id = %s AND channel_id = %s AND active = 1 AND expires_at > %s
+        WHERE user_id = %s AND channel_id = %s AND active = TRUE AND expires_at > %s
         ORDER BY expires_at DESC
     ''', (user_id, str(channel_id), now))
 
@@ -1293,7 +1297,7 @@ def deactivate_subscription(sub_id):
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
 
-    cursor.execute('UPDATE subscriptions SET active = 0 WHERE id = %s', (sub_id,))
+    cursor.execute('UPDATE subscriptions SET active = FALSE WHERE id = %s', (sub_id,))
 
     conn.commit()
     conn.close()
@@ -1307,7 +1311,7 @@ def deactivate_all_user_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     cursor = conn.cursor()
 
     cursor.execute('''
-        UPDATE subscriptions SET active = 0
+        UPDATE subscriptions SET active = FALSE
         WHERE user_id = %s AND channel_id = %s
     ''', (user_id, str(channel_id)))
 
@@ -1452,7 +1456,7 @@ def check_and_remove_expired_subscriptions():
     cursor.execute('''
         SELECT id, user_id, type, channel_id, expires_at
         FROM subscriptions
-        WHERE active = 1 AND expires_at <= %s
+        WHERE active = TRUE AND expires_at <= %s
         ORDER BY expires_at ASC
     ''', (now,))
 
