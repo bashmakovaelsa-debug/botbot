@@ -1,8 +1,21 @@
 import os
-os.environ['PYTHONUNBUFFERED'] = '1'
 import sys
+import subprocess
+
+os.environ['PYTHONUNBUFFERED'] = '1'
 sys.stdout.reconfigure(line_buffering=True)
 sys.stderr.reconfigure(line_buffering=True)
+
+try:
+    import psycopg2
+    import psycopg2.extras
+    from psycopg2 import pool as pg_pool
+except ImportError:
+    subprocess.run([sys.executable, '-m', 'pip', 'install', 'psycopg2-binary'], check=True)
+    import psycopg2
+    import psycopg2.extras
+    from psycopg2 import pool as pg_pool
+
 import json
 import telebot
 from telebot import types
@@ -12,12 +25,7 @@ import time
 import threading
 import random
 from enum import Enum
-import sys
-import sys
 import io
-import os
-import psycopg2
-import psycopg2.extras
 
 # Устанавливаем UTF-8 кодировку для вывода в Windows
 if sys.platform == 'win32':
@@ -29,6 +37,16 @@ if sys.platform == 'win32':
 
 # Database URL for PostgreSQL
 DB_URL = "postgresql://bothost_db_59da6d3fff71:DVNH38JY8ZDUvLwpYfAecxENXkpj1i2m4bj5ix6xY-Q@node1.pghost.ru:15690/bothost_db_59da6d3fff71"
+
+# Connection pool for performance
+from psycopg2 import pool as pg_pool
+db_pool = pg_pool.ThreadedConnectionPool(2, 10, DB_URL)
+
+def get_conn():
+    return db_pool.getconn()
+
+def release_conn(conn):
+    db_pool.putconn(conn)
 
 import os
 
@@ -172,14 +190,14 @@ def check_and_send_daily_reminders():
         try:
             print("🔍 Проверка пользователей для напоминаний о ежедневном бонусе...")
 
-            conn = psycopg2.connect(DB_URL)
+            conn = get_conn()
             cursor = conn.cursor()
 
             # Получаем всех пользователей
             cursor.execute("SELECT id FROM users")
             users = cursor.fetchall()
 
-            conn.close()
+            release_conn(conn)
 
             now = time.time()
             reminders_sent = 0
@@ -253,14 +271,14 @@ def initialize_bonus_reminders():
     """
     print("🚀 Агрессивная инициализация reminder-системы для всех пользователей...")
 
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     # Получаем всех пользователей
     cursor.execute("SELECT id, last_daily, first_bonus_claimed FROM users")
     users = cursor.fetchall()
 
-    conn.close()
+    release_conn(conn)
 
     now = time.time()
     initialized_count = 0
@@ -681,7 +699,7 @@ def create_invite_link_for_user(chat_id, user_id):
 
 # ================= DATABASE (PostgreSQL) =================
 def init_db():
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
@@ -727,9 +745,9 @@ def init_db():
     ''')
 
     conn.commit()
-    conn.close()
+    release_conn(conn)
 def migrate_db():
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     # Check if columns exist and add them if they don't
@@ -779,15 +797,15 @@ def migrate_db():
         print(f"[DB] Error checking table structure: {e}")
 
     conn.commit()
-    conn.close()
+    release_conn(conn)
 
 def get_user(user_id):
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
     cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
     row = cursor.fetchone()
-    conn.close()
+    release_conn(conn)
 
     if row:
         # Convert psycopg2 DictRow to regular dict for compatibility
@@ -855,7 +873,7 @@ def get_user(user_id):
     return None
 
 def update_user(user_id, **kwargs):
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     # ✅ Начинаем транзакцию
@@ -875,14 +893,14 @@ def update_user(user_id, **kwargs):
         print(f"❌ Ошибка обновления пользователя {user_id}: {e}")
         raise
     finally:
-        conn.close()
+        release_conn(conn)
 
 init_db()
 migrate_db()
 
 # ✅ Проверка целостности базы данных
 def check_db_integrity():
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     # Проверяем, есть ли пользователи с last_daily = 0 но с бонусами
@@ -894,7 +912,7 @@ def check_db_integrity():
         for user_id, bonus, last_daily in users:
             print(f"   Пользователь {user_id}: бонус={bonus}, last_daily={last_daily}")
 
-    conn.close()
+    release_conn(conn)
 
 check_db_integrity()
 
@@ -1062,7 +1080,7 @@ def admin_callback(call):
         bot.answer_callback_query(call.id, "Нет прав!", show_alert=True)
         return
 
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
     
     if call.data == 'adm_stats':
@@ -1086,14 +1104,14 @@ def admin_callback(call):
             text += f"• ID: {u[0]} | Язык: {u[1] or 'Нет'} | Бонусы: {u[2]}\n"
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode='HTML')
         
-    conn.close()
+    release_conn(conn)
 
 def process_broadcast(message):
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT id FROM users")
     users = cursor.fetchall()
-    conn.close()
+    release_conn(conn)
     
     success = 0
     for u in users:
@@ -1228,7 +1246,7 @@ check_hub_channels_setup()
 # ================= СИСТЕМА ПОДПИСОК =================
 def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL_ID):
     """Добавляет подписку пользователю"""
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     now = time.time()
@@ -1242,7 +1260,7 @@ def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL
 
     sub_id = cursor.fetchone()[0]
     conn.commit()
-    conn.close()
+    release_conn(conn)
 
     print(f"✅ Добавлена подписка {sub_type} для пользователя {user_id} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expires_at))}")
     return sub_id
@@ -1250,7 +1268,7 @@ def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL
 
 def get_active_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     """Получает активные подписки пользователя"""
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     now = time.time()
@@ -1262,7 +1280,7 @@ def get_active_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     ''', (user_id, str(channel_id), now))
 
     rows = cursor.fetchall()
-    conn.close()
+    release_conn(conn)
 
     subscriptions = []
     for row in rows:
@@ -1297,20 +1315,20 @@ def has_active_subscription(user_id, channel_id=SECRET_CHANNEL_ID):
 
 def deactivate_subscription(sub_id):
     """Деактивирует подписку"""
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute('UPDATE subscriptions SET active = FALSE WHERE id = %s', (sub_id,))
 
     conn.commit()
-    conn.close()
+    release_conn(conn)
 
     print(f"✅ Подписка {sub_id} деактивирована")
 
 
 def deactivate_all_user_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     """Деактивирует все подписки пользователя"""
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute('''
@@ -1319,7 +1337,7 @@ def deactivate_all_user_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     ''', (user_id, str(channel_id)))
 
     conn.commit()
-    conn.close()
+    release_conn(conn)
 
     print(f"✅ Все подписки пользователя {user_id} деактивированы для канала {channel_id}")
 
@@ -1378,11 +1396,11 @@ def test_lite_subscription_system():
     # Очистка тестовых данных
     print("🧹 Очистка тестовых данных...")
     try:
-        conn = psycopg2.connect(DB_URL)
+        conn = get_conn()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM subscriptions WHERE user_id = %s", (test_user_id,))
         conn.commit()
-        conn.close()
+        release_conn(conn)
         print(f"✅ Тестовые данные удалены")
     except Exception as e:
         print(f"❌ Ошибка удаления тестовых данных: {e}")
@@ -1446,7 +1464,7 @@ def check_and_remove_expired_subscriptions():
     """Проверяет и удаляет истекшие подписки каждые 10 минут"""
     print(f"🔍 Проверка истекших подписок... {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     now = time.time()
@@ -1464,7 +1482,7 @@ def check_and_remove_expired_subscriptions():
     ''', (now,))
 
     expired_subs = cursor.fetchall()
-    conn.close()
+    release_conn(conn)
 
     if not expired_subs:
         print("✅ Нет истекших подписок")
@@ -1531,7 +1549,7 @@ def check_and_remove_expired_subscriptions():
 
     # Проверяем пользователей со старой системой paid_until
     print(f"🔍 Проверка старых пользователей с paid_until...")
-    conn_old = psycopg2.connect(DB_URL)
+    conn_old = get_conn()
     cursor_old = conn_old.cursor()
     cursor_old.execute('''
         SELECT id FROM users
@@ -1907,7 +1925,7 @@ def ensure_user(user_id):
         return user
 
     # если пользователя нет — создаём
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -1930,7 +1948,7 @@ def ensure_user(user_id):
     ))
 
     conn.commit()
-    conn.close()
+    release_conn(conn)
 
     print(f"✅ Создан новый пользователь {user_id} с last_daily=0, first_bonus_claimed=0, last_bonus_reminder=0")
 
@@ -2237,11 +2255,11 @@ def daily_bonus(user_id, bonus_message_id=None):
     update_user(user_id, **update_data)
 
     # ✅ Прямая проверка в базе данных
-    conn = psycopg2.connect(DB_URL)
+    conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT last_daily, bonus, first_bonus_claimed FROM users WHERE id = %s", (user_id,))
     result = cursor.fetchone()
-    conn.close()
+    release_conn(conn)
 
     if result:
         db_last_daily, db_bonus, db_first_bonus_claimed = result
