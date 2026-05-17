@@ -1,6 +1,13 @@
 import subprocess
 import sys
-subprocess.run([sys.executable, '-m', 'pip', 'install', 'psycopg2-binary'], check=True)
+
+# Устанавливаем psycopg2 только если не установлен
+try:
+    import psycopg2
+except ImportError:
+    print("📦 Устанавливаем psycopg2-binary...", flush=True)
+    subprocess.run([sys.executable, '-m', 'pip', 'install', 'psycopg2-binary'], check=True)
+    print("✅ psycopg2-binary установлен", flush=True)
 import json
 import telebot
 from telebot import types
@@ -31,7 +38,7 @@ DB_URL = "postgresql://bothost_db_59da6d3fff71:DVNH38JY8ZDUvLwpYfAecxENXkpj1i2m4
 import os
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN', '').strip()
-print(f"🔑 Токен (первые 10 символов): {BOT_TOKEN[:10]}...")
+print(f"🔑 Токен (первые 10 символов, flush=True): {BOT_TOKEN[:10]}...")
 
 if not BOT_TOKEN:
     raise SystemExit("❌ BOT_TOKEN не найден в переменных окружения!")
@@ -62,7 +69,7 @@ fsm_states = {}
 def set_fsm_state(user_id, state):
     """Устанавливает состояние FSM для пользователя"""
     fsm_states[user_id] = state
-    print(f"🔄 FSM: User {user_id} state set to {state}")
+    print(f"🔄 FSM: User {user_id} state set to {state}", flush=True)
 
 def get_fsm_state(user_id):
     """Получает текущее состояние FSM пользователя"""
@@ -72,7 +79,7 @@ def clear_fsm_state(user_id):
     """Очищает состояние FSM пользователя"""
     if user_id in fsm_states:
         del fsm_states[user_id]
-        print(f"🗑️ FSM: User {user_id} state cleared")
+        print(f"🗑️ FSM: User {user_id} state cleared", flush=True)
 
 # Хранилище активных reengage-таймеров
 active_reengage_timers = {}
@@ -168,7 +175,7 @@ def check_and_send_daily_reminders():
     """
     while background_tasks_running:
         try:
-            print("🔍 Проверка пользователей для напоминаний о ежедневном бонусе...")
+            print("🔍 Проверка пользователей для напоминаний о ежедневном бонусе...", flush=True)
 
             conn = psycopg2.connect(DB_URL)
             cursor = conn.cursor()
@@ -209,16 +216,16 @@ def check_and_send_daily_reminders():
                                     # Обновляем время последнего напоминания
                                     update_user(user_id, last_bonus_reminder=now)
                                     reminders_sent += 1
-                                    print(f"✅ Отправлено напоминание пользователю {user_id}")
+                                    print(f"✅ Отправлено напоминание пользователю {user_id}", flush=True)
 
                 except Exception as e:
-                    print(f"❌ Ошибка обработки пользователя {user_id}: {e}")
+                    print(f"❌ Ошибка обработки пользователя {user_id}: {e}", flush=True)
                     continue
 
-            print(f"📊 Отправлено напоминаний: {reminders_sent} из {len(users)} пользователей")
+            print(f"📊 Отправлено напоминаний: {reminders_sent} из {len(users, flush=True)} пользователей")
 
         except Exception as e:
-            print(f"❌ Ошибка в check_and_send_daily_reminders: {e}")
+            print(f"❌ Ошибка в check_and_send_daily_reminders: {e}", flush=True)
 
         # Ждем 5 минут перед следующей проверкой
         for _ in range(300):  # 5 минут = 300 секунд
@@ -232,7 +239,7 @@ def schedule_all_daily_reminders():
     Запускает централизованную систему напоминаний о ежедневном бонусе.
     Создает один фоновый поток, который проверяет всех пользователей каждые 5 минут.
     """
-    print("🚀 Запуск централизованной системы напоминаний о ежедневном бонусе...")
+    print("🚀 Запуск централизованной системы напоминаний о ежедневном бонусе...", flush=True)
 
     # Запускаем фоновую задачу
     reminder_thread = threading.Thread(
@@ -241,7 +248,7 @@ def schedule_all_daily_reminders():
     )
     reminder_thread.start()
 
-    print("✅ Система напоминаний запущена")
+    print("✅ Система напоминаний запущена", flush=True)
 
 
 def initialize_bonus_reminders():
@@ -249,7 +256,7 @@ def initialize_bonus_reminders():
     Агрессивная инициализация reminder-системы для всех пользователей.
     Отправляет напоминания всем пользователям, у которых доступен бонус.
     """
-    print("🚀 Агрессивная инициализация reminder-системы для всех пользователей...")
+    print("🚀 Агрессивная инициализация reminder-системы для всех пользователей...", flush=True)
 
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
@@ -291,20 +298,20 @@ def initialize_bonus_reminders():
                         if message:
                             update_user(user_id, last_bonus_reminder=now, bonus_message_id=message.message_id)
                             initialized_count += 1
-                            print(f"✅ Инициализировано напоминание для пользователя {user_id}")
+                            print(f"✅ Инициализировано напоминание для пользователя {user_id}", flush=True)
 
             # Считаем старых пользователей
             if last_daily == 0 or first_bonus_claimed == 0:
                 old_users_count += 1
-                print(f"📋 Старый пользователь {user_id}: last_daily={last_daily}, first_bonus_claimed={first_bonus_claimed}")
+                print(f"📋 Старый пользователь {user_id}: last_daily={last_daily}, first_bonus_claimed={first_bonus_claimed}", flush=True)
 
         except Exception as e:
-            print(f"❌ Ошибка инициализации пользователя {user_id}: {e}")
+            print(f"❌ Ошибка инициализации пользователя {user_id}: {e}", flush=True)
             continue
 
-    print(f"✅ Reminder-система инициализирована для {initialized_count} пользователей")
-    print(f"📊 Обработано старых пользователей: {old_users_count}")
-    print(f"📊 Всего пользователей в базе: {len(users)}")
+    print(f"✅ Reminder-система инициализирована для {initialized_count} пользователей", flush=True)
+    print(f"📊 Обработано старых пользователей: {old_users_count}", flush=True)
+    print(f"📊 Всего пользователей в базе: {len(users, flush=True)}")
 
 
 # ================= ПОСЛЕДОВАТЕЛЬНЫЙ ONBOARDING =================
@@ -312,72 +319,72 @@ def start_sequential_onboarding(user_id, source='start'):
     """Запускает последовательный onboarding для пользователя"""
     user = ensure_user(user_id)
 
-    print(f"🚀 Запуск последовательного onboarding для пользователя {user_id} (источник: {source})")
+    print(f"🚀 Запуск последовательного onboarding для пользователя {user_id} (источник: {source}, flush=True)")
 
     # Если пользователь уже прошел onboarding - показываем меню
     if user.get('funnel_step', 0) >= FUNNEL_MENU:
-        print(f"✅ Пользователь {user_id} уже прошел onboarding, показываем меню")
+        print(f"✅ Пользователь {user_id} уже прошел onboarding, показываем меню", flush=True)
         show_menu(user_id, user_id)
         return
 
     # Начинаем с выбора языка
-    print(f"📝 Этап 1: Показываем выбор языка пользователю {user_id}")
+    print(f"📝 Этап 1: Показываем выбор языка пользователю {user_id}", flush=True)
     show_lang(user_id, user_id)
     update_user(user_id, funnel_step=FUNNEL_LANGUAGE, source=source)
-    print(f"✅ Ожидаем выбора языка от пользователя {user_id}")
+    print(f"✅ Ожидаем выбора языка от пользователя {user_id}", flush=True)
 
 
 def process_onboarding_step(user_id, step):
     """Обрабатывает следующий шаг onboarding с проверкой подписки"""
     user = ensure_user(user_id)
 
-    print(f"🔄 Обработка этапа {step} для пользователя {user_id}")
+    print(f"🔄 Обработка этапа {step} для пользователя {user_id}", flush=True)
 
     if step == FUNNEL_LANGUAGE:
         # После выбора языка - приветствие
-        print(f"📝 Этап 2: Отправляем приветствие пользователю {user_id}")
+        print(f"📝 Этап 2: Отправляем приветствие пользователю {user_id}", flush=True)
         send_welcome_message(user_id)
         update_user(user_id, funnel_step=FUNNEL_WELCOME)
 
     elif step == FUNNEL_WELCOME:
         # После приветствия - ежедневный бонус (если доступен)
-        print(f"📝 Этап 3: Проверяем ежедневный бонус для пользователя {user_id}")
+        print(f"📝 Этап 3: Проверяем ежедневный бонус для пользователя {user_id}", flush=True)
 
         # ✅ Используем can_claim_daily_bonus для проверки
         can_claim, remaining = can_claim_daily_bonus(user_id)
 
         if can_claim:
             # Бонус доступен - отправляем сообщение
-            print(f"✅ Бонус доступен для пользователя {user_id}")
+            print(f"✅ Бонус доступен для пользователя {user_id}", flush=True)
             bonus_message = send_daily_bonus_message(user_id)
 
             if bonus_message:
                 # Бонус отправлен - переходим к этапу бонуса
                 update_user(user_id, funnel_step=FUNNEL_BONUS)
-                print(f"✅ Бонус отправлен, ожидаем получения от пользователя {user_id}")
+                print(f"✅ Бонус отправлен, ожидаем получения от пользователя {user_id}", flush=True)
             else:
                 # Если по какой-то причине не удалось отправить бонус
-                print(f"❌ Не удалось отправить бонус пользователю {user_id}")
+                print(f"❌ Не удалось отправить бонус пользователю {user_id}", flush=True)
                 show_sub(user_id, user_id)
                 update_user(user_id, funnel_step=FUNNEL_SUBSCRIPTION)
         else:
             # Бонус недоступен - пропускаем этап бонуса и переходим сразу к подписке
             hours = remaining // 3600
             minutes = (remaining % 3600) // 60
-            print(f"ℹ️ Бонус недоступен для пользователя {user_id}. Осталось: {hours}ч {minutes}мин")
+            print(f"ℹ️ Бонус недоступен для пользователя {user_id}. Осталось: {hours}ч {minutes}мин", flush=True)
             show_sub(user_id, user_id)
             update_user(user_id, funnel_step=FUNNEL_SUBSCRIPTION)
 
     elif step == FUNNEL_BONUS:
         # После бонуса - подписка на каналы
-        print(f"📝 Этап 4: Отправляем каналы для подписки пользователю {user_id}")
+        print(f"📝 Этап 4: Отправляем каналы для подписки пользователю {user_id}", flush=True)
         show_sub(user_id, user_id)
         update_user(user_id, funnel_step=FUNNEL_SUBSCRIPTION)
 
     elif step == FUNNEL_SUBSCRIPTION:
         # ✅ НЕ показываем главное меню здесь!
         # Главное меню показывается только после подтверждения подписки через callback
-        print(f"📝 Этап 4 завершён: ожидаем подтверждения подписки от пользователя {user_id}")
+        print(f"📝 Этап 4 завершён: ожидаем подтверждения подписки от пользователя {user_id}", flush=True)
         # Не обновляем funnel_step - остаём на FUNNEL_SUBSCRIPTION
 
 
@@ -387,7 +394,7 @@ def send_welcome_message(user_id):
 
     # ✅ Отправляем сообщение и ждём завершения
     bot.send_message(user_id, welcome_text, parse_mode='HTML')
-    print(f"✅ Отправлено приветствие пользователю {user_id}")
+    print(f"✅ Отправлено приветствие пользователю {user_id}", flush=True)
 
 
 def can_claim_daily_bonus(user_id):
@@ -406,7 +413,7 @@ def can_claim_daily_bonus(user_id):
 
     # Если первый бонус еще не был получен - всегда можно получить
     if first_bonus_claimed == 0:
-        print(f"✅ Пользователь {user_id} может получить первый бонус")
+        print(f"✅ Пользователь {user_id} может получить первый бонус", flush=True)
         return True, 0
 
     # Если первый бонус уже был получен - проверяем cooldown
@@ -417,11 +424,11 @@ def can_claim_daily_bonus(user_id):
 
         if time_since_last_bonus < 86400:  # 24 часа = 86400 секунд
             remaining = int(86400 - time_since_last_bonus)
-            print(f"⏳ Пользователь {user_id} не может получить бонус. Осталось: {remaining} секунд")
+            print(f"⏳ Пользователь {user_id} не может получить бонус. Осталось: {remaining} секунд", flush=True)
             return False, remaining
 
     # Если прошло 24 часа или last_daily == 0 - можно получить
-    print(f"✅ Пользователь {user_id} может получить бонус")
+    print(f"✅ Пользователь {user_id} может получить бонус", flush=True)
     return True, 0
 
 
@@ -497,10 +504,10 @@ def show_daily_bonus_button(user_id, chat_id, message_id=None):
             # Сохраняем message_id в базе данных
             if message:
                 update_user(user_id, bonus_message_id=message.message_id)
-                print(f"✅ Отредактировано сообщение о бонусе для пользователя {user_id}, message_id: {message.message_id}")
+                print(f"✅ Отредактировано сообщение о бонусе для пользователя {user_id}, message_id: {message.message_id}", flush=True)
             return message
         except Exception as e:
-            print(f"❌ Ошибка редактирования сообщения: {e}")
+            print(f"❌ Ошибка редактирования сообщения: {e}", flush=True)
             # Если не удалось отредактировать, отправляем новое
             pass
 
@@ -510,7 +517,7 @@ def show_daily_bonus_button(user_id, chat_id, message_id=None):
     # Сохраняем message_id в базе данных
     if message:
         update_user(user_id, bonus_message_id=message.message_id)
-        print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}")
+        print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}", flush=True)
 
     return message
 
@@ -525,7 +532,7 @@ def send_daily_bonus_message(user_id):
         can_claim, remaining = can_claim_daily_bonus(user_id)
 
         if not can_claim:
-            print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд")
+            print(f"ℹ️ Бонус для пользователя {user_id} еще недоступен. Осталось: {remaining} секунд", flush=True)
             return None
 
         if lang == 'ru':
@@ -547,12 +554,12 @@ def send_daily_bonus_message(user_id):
         # ✅ Сохраняем message_id в базе данных
         if message:
             update_user(user_id, bonus_message_id=message.message_id)
-            print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}")
+            print(f"✅ Отправлено сообщение о бонусе пользователю {user_id}, message_id: {message.message_id}", flush=True)
 
         return message
 
     except Exception as e:
-        print(f"❌ Ошибка в send_daily_bonus_message для пользователя {user_id}: {e}")
+        print(f"❌ Ошибка в send_daily_bonus_message для пользователя {user_id}: {e}", flush=True)
         return None
 
 
@@ -580,7 +587,7 @@ def send_lootbox_reminder(user_id):
         return message
 
     except Exception as e:
-        print(f"❌ Ошибка в send_lootbox_reminder для пользователя {user_id}: {e}")
+        print(f"❌ Ошибка в send_lootbox_reminder для пользователя {user_id}: {e}", flush=True)
         return None
 
 def is_real_user(obj):
@@ -609,19 +616,19 @@ def create_one_time_invite_link(chat_id, expire_seconds=86400):
         "expire_date": int(time.time() + expire_seconds)
     }
     try:
-        print(f"🔗 Создание ссылки для чата {chat_id}...")
+        print(f"🔗 Создание ссылки для чата {chat_id}...", flush=True)
         resp = requests.post(url, json=payload).json()
-        print(f"📊 Ответ API: {resp}")
+        print(f"📊 Ответ API: {resp}", flush=True)
 
         if resp.get("ok"):
             link = resp["result"]["invite_link"]
-            print(f"✅ Ссылка успешно создана: {link}")
+            print(f"✅ Ссылка успешно создана: {link}", flush=True)
             return link
         else:
-            print(f"❌ Ошибка создания ссылки: {resp}")
+            print(f"❌ Ошибка создания ссылки: {resp}", flush=True)
             return None
     except Exception as e:
-        print(f"❌ Исключение при создании ссылки: {e}")
+        print(f"❌ Исключение при создании ссылки: {e}", flush=True)
         return None
 
 
@@ -635,19 +642,19 @@ def create_invite_link_for_user(chat_id, user_id):
         "creates_join_request": True  # Создаёт запрос на вступление
     }
     try:
-        print(f"🔗 Создание инвайт-ссылки с запросом для пользователя {user_id} в канал {chat_id}...")
+        print(f"🔗 Создание инвайт-ссылки с запросом для пользователя {user_id} в канал {chat_id}...", flush=True)
         resp = requests.post(url, json=payload).json()
-        print(f"📊 Ответ API: {resp}")
+        print(f"📊 Ответ API: {resp}", flush=True)
 
         if resp.get("ok"):
             link = resp["result"]["invite_link"]
-            print(f"✅ Ссылка успешно создана: {link}")
+            print(f"✅ Ссылка успешно создана: {link}", flush=True)
             return link
         else:
-            print(f"❌ Ошибка создания ссылки: {resp}")
+            print(f"❌ Ошибка создания ссылки: {resp}", flush=True)
             return None
     except Exception as e:
-        print(f"❌ Исключение при создании ссылки: {e}")
+        print(f"❌ Исключение при создании ссылки: {e}", flush=True)
         return None
     """
     Создаёт одноразовую ссылку-приглашение в чат.
@@ -662,19 +669,19 @@ def create_invite_link_for_user(chat_id, user_id):
         "expire_date": int(time.time() + expire_seconds)
     }
     try:
-        print(f"🔗 Создание ссылки для чата {chat_id}...")
+        print(f"🔗 Создание ссылки для чата {chat_id}...", flush=True)
         resp = requests.post(url, json=payload).json()
-        print(f"📊 Ответ API: {resp}")
+        print(f"📊 Ответ API: {resp}", flush=True)
 
         if resp.get("ok"):
             link = resp["result"]["invite_link"]
-            print(f"✅ Ссылка успешно создана: {link}")
+            print(f"✅ Ссылка успешно создана: {link}", flush=True)
             return link
         else:
-            print(f"❌ Ошибка создания ссылки: {resp}")
+            print(f"❌ Ошибка создания ссылки: {resp}", flush=True)
             return None
     except Exception as e:
-        print(f"❌ Исключение при создании ссылки: {e}")
+        print(f"❌ Исключение при создании ссылки: {e}", flush=True)
         return None
 
 # ================= DATABASE (PostgreSQL) =================
@@ -739,7 +746,7 @@ def migrate_db():
             WHERE table_name = 'users'
         """)
         existing_columns = [row[0] for row in cursor.fetchall()]
-        print(f"[DB] Current columns in users table: {existing_columns}")
+        print(f"[DB] Current columns in users table: {existing_columns}", flush=True)
 
         # Define columns to check/add
         columns_to_check = [
@@ -764,17 +771,17 @@ def migrate_db():
 
         for col_name, col_type in columns_to_check:
             if col_name not in existing_columns:
-                print(f"[DB] {col_name} field not found, adding...")
+                print(f"[DB] {col_name} field not found, adding...", flush=True)
                 try:
                     cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
-                    print(f"[DB] {col_name} field successfully added")
+                    print(f"[DB] {col_name} field successfully added", flush=True)
                 except Exception as e:
-                    print(f"[DB] Error adding {col_name} field: {e}")
+                    print(f"[DB] Error adding {col_name} field: {e}", flush=True)
             else:
-                print(f"[DB] {col_name} field already exists")
+                print(f"[DB] {col_name} field already exists", flush=True)
 
     except Exception as e:
-        print(f"[DB] Error checking table structure: {e}")
+        print(f"[DB] Error checking table structure: {e}", flush=True)
 
     conn.commit()
     conn.close()
@@ -866,11 +873,11 @@ def update_user(user_id, **kwargs):
             cursor.execute(f"UPDATE users SET {key} = %s WHERE id = %s", (value, user_id))
 
         conn.commit()
-        print(f"✅ Обновлён пользователь {user_id}: {list(kwargs.keys())}")
+        print(f"✅ Обновлён пользователь {user_id}: {list(kwargs.keys(, flush=True))}")
 
     except Exception as e:
         conn.rollback()
-        print(f"❌ Ошибка обновления пользователя {user_id}: {e}")
+        print(f"❌ Ошибка обновления пользователя {user_id}: {e}", flush=True)
         raise
     finally:
         conn.close()
@@ -888,9 +895,9 @@ def check_db_integrity():
     users = cursor.fetchall()
 
     if users:
-        print(f"⚠️ Найдено {len(users)} пользователей с бонусами но без last_daily:")
+        print(f"⚠️ Найдено {len(users, flush=True)} пользователей с бонусами но без last_daily:")
         for user_id, bonus, last_daily in users:
-            print(f"   Пользователь {user_id}: бонус={bonus}, last_daily={last_daily}")
+            print(f"   Пользователь {user_id}: бонус={bonus}, last_daily={last_daily}", flush=True)
 
     conn.close()
 
@@ -1183,43 +1190,43 @@ HUB_CHANNELS = [
 
 # ✅ Проверка настройки каналов при запуске
 def check_hub_channels_setup():
-    print("🔍 Проверка настройки хаб-каналов...")
+    print("🔍 Проверка настройки хаб-каналов...", flush=True)
 
     target_channels = HUB_CHANNELS[:2]  # SD_FETISH_HUB и MUSIC
 
     for ch in target_channels:
         if 'chat_id' in ch and ch['chat_id']:
             chat_id = ch['chat_id']
-            print(f"📋 Проверка канала {chat_id}...")
+            print(f"📋 Проверка канала {chat_id}...", flush=True)
 
             try:
                 # Проверяем информацию о канале
                 chat_info = bot.get_chat(chat_id)
-                print(f"✅ Канал найден: {chat_info.title}")
-                print(f"🔒 Тип канала: {'Приватный' if chat_info.type == 'channel' else 'Публичный'}")
+                print(f"✅ Канал найден: {chat_info.title}", flush=True)
+                print(f"🔒 Тип канала: {'Приватный' if chat_info.type == 'channel' else 'Публичный'}", flush=True)
 
                 # Проверяем права бота
                 bot_info = bot.get_me()
                 bot_member = bot.get_chat_member(chat_id, bot_info.id)
-                print(f"👤 Статус бота: {bot_member.status}")
+                print(f"👤 Статус бота: {bot_member.status}", flush=True)
 
                 if bot_member.status not in ['administrator', 'creator']:
-                    print(f"❌ Бот НЕ является администратором канала {chat_id}!")
-                    print(f"⚠️ Добавьте бота как администратора в канал {chat_info.title}")
-                    print(f"⚠️ Без прав администратора бот не сможет одобрять заявки!")
+                    print(f"❌ Бот НЕ является администратором канала {chat_id}!", flush=True)
+                    print(f"⚠️ Добавьте бота как администратора в канал {chat_info.title}", flush=True)
+                    print(f"⚠️ Без прав администратора бот не сможет одобрять заявки!", flush=True)
                 else:
-                    print(f"✅ Бот является администратором канала {chat_id}")
-                    print(f"✅ Автоодобрение заявок будет работать")
+                    print(f"✅ Бот является администратором канала {chat_id}", flush=True)
+                    print(f"✅ Автоодобрение заявок будет работать", flush=True)
 
             except Exception as e:
-                print(f"❌ Ошибка проверки канала {chat_id}: {e}")
-                print(f"⚠️ Убедитесь, что ID канала {chat_id} правильный и бот добавлен в канал")
+                print(f"❌ Ошибка проверки канала {chat_id}: {e}", flush=True)
+                print(f"⚠️ Убедитесь, что ID канала {chat_id} правильный и бот добавлен в канал", flush=True)
         else:
-            print(f"⚠️ Канал не имеет chat_id: {ch}")
+            print(f"⚠️ Канал не имеет chat_id: {ch}", flush=True)
 
-    print("✅ Настройка хаб-каналов завершена")
-    print("ℹ️ Для приватных каналов используется автоматическое одобрение заявок")
-    print("ℹ️ Обработчик заявок будет перехватывать все запросы на вступление")
+    print("✅ Настройка хаб-каналов завершена", flush=True)
+    print("ℹ️ Для приватных каналов используется автоматическое одобрение заявок", flush=True)
+    print("ℹ️ Обработчик заявок будет перехватывать все запросы на вступление", flush=True)
 
 check_hub_channels_setup()
 
@@ -1242,7 +1249,7 @@ def add_subscription(user_id, sub_type, duration_days, channel_id=SECRET_CHANNEL
     conn.commit()
     conn.close()
 
-    print(f"✅ Добавлена подписка {sub_type} для пользователя {user_id} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expires_at))}")
+    print(f"✅ Добавлена подписка {sub_type} для пользователя {user_id} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(expires_at, flush=True))}")
     return sub_id
 
 
@@ -1303,7 +1310,7 @@ def deactivate_subscription(sub_id):
     conn.commit()
     conn.close()
 
-    print(f"✅ Подписка {sub_id} деактивирована")
+    print(f"✅ Подписка {sub_id} деактивирована", flush=True)
 
 
 def deactivate_all_user_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
@@ -1319,73 +1326,73 @@ def deactivate_all_user_subscriptions(user_id, channel_id=SECRET_CHANNEL_ID):
     conn.commit()
     conn.close()
 
-    print(f"✅ Все подписки пользователя {user_id} деактивированы для канала {channel_id}")
+    print(f"✅ Все подписки пользователя {user_id} деактивированы для канала {channel_id}", flush=True)
 
 
 def test_lite_subscription_system():
     """Тестовая функция для проверки системы временного доступа в LITE канал"""
-    print("🧪 Тестирование системы временного доступа в SD FETISH LITE...")
+    print("🧪 Тестирование системы временного доступа в SD FETISH LITE...", flush=True)
 
     # Тест 1: Проверка создания подписки
-    print("📝 Тест 1: Создание 3-дневной подписки")
+    print("📝 Тест 1: Создание 3-дневной подписки", flush=True)
     test_user_id = 999999999  # Тестовый пользователь
     test_sub_id = add_subscription(test_user_id, 'lite_3days', 3, LITE_CHANNEL_ID)
-    print(f"✅ Создана тестовая подписка: {test_sub_id}")
+    print(f"✅ Создана тестовая подписка: {test_sub_id}", flush=True)
 
     # Тест 2: Проверка активной подписки
-    print("📝 Тест 2: Проверка активной подписки")
+    print("📝 Тест 2: Проверка активной подписки", flush=True)
     active_subs = get_active_subscriptions(test_user_id, LITE_CHANNEL_ID)
-    print(f"✅ Активные подписки: {len(active_subs)}")
+    print(f"✅ Активные подписки: {len(active_subs, flush=True)}")
     for sub in active_subs:
         expires_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(sub['expires_at']))
-        print(f"   - {sub['type']}: истекает {expires_at}")
+        print(f"   - {sub['type']}: истекает {expires_at}", flush=True)
 
     # Тест 3: Проверка has_active_subscription
-    print("📝 Тест 3: Проверка has_active_subscription")
+    print("📝 Тест 3: Проверка has_active_subscription", flush=True)
     has_access = has_active_subscription(test_user_id, LITE_CHANNEL_ID)
-    print(f"✅ Есть доступ: {has_access}")
+    print(f"✅ Есть доступ: {has_access}", flush=True)
 
     # Тест 4: Проверка get_max_expiration
-    print("📝 Тест 4: Проверка get_max_expiration")
+    print("📝 Тест 4: Проверка get_max_expiration", flush=True)
     max_exp = get_max_expiration(test_user_id, LITE_CHANNEL_ID)
     if max_exp > 0:
         expires_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(max_exp))
-        print(f"✅ Максимальное время истечения: {expires_at}")
+        print(f"✅ Максимальное время истечения: {expires_at}", flush=True)
     else:
-        print(f"❌ Нет активных подписок")
+        print(f"❌ Нет активных подписок", flush=True)
 
     # Тест 5: Проверка деактивации подписки
-    print("📝 Тест 5: Деактивация подписки")
+    print("📝 Тест 5: Деактивация подписки", flush=True)
     deactivate_subscription(test_sub_id)
-    print(f"✅ Подписка {test_sub_id} деактивирована")
+    print(f"✅ Подписка {test_sub_id} деактивирована", flush=True)
 
     # Тест 6: Проверка после деактивации
-    print("📝 Тест 6: Проверка после деактивации")
+    print("📝 Тест 6: Проверка после деактивации", flush=True)
     has_access_after = has_active_subscription(test_user_id, LITE_CHANNEL_ID)
-    print(f"✅ Есть доступ после деактивации: {has_access_after}")
+    print(f"✅ Есть доступ после деактивации: {has_access_after}", flush=True)
 
     # Тест 7: Проверка функции kick_user_from_channel
-    print("📝 Тест 7: Проверка функции kick_user_from_channel")
+    print("📝 Тест 7: Проверка функции kick_user_from_channel", flush=True)
     # Не выполняем реальный kick, только проверяем что функция существует
-    print(f"✅ Функция kick_user_from_channel доступна")
+    print(f"✅ Функция kick_user_from_channel доступна", flush=True)
 
     # Тест 8: Проверка check_and_remove_expired_subscriptions
-    print("📝 Тест 8: Проверка check_and_remove_expired_subscriptions")
-    print("✅ Функция check_and_remove_expired_subscriptions доступна")
+    print("📝 Тест 8: Проверка check_and_remove_expired_subscriptions", flush=True)
+    print("✅ Функция check_and_remove_expired_subscriptions доступна", flush=True)
 
     # Очистка тестовых данных
-    print("🧹 Очистка тестовых данных...")
+    print("🧹 Очистка тестовых данных...", flush=True)
     try:
         conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         cursor.execute("DELETE FROM subscriptions WHERE user_id = %s", (test_user_id,))
         conn.commit()
         conn.close()
-        print(f"✅ Тестовые данные удалены")
+        print(f"✅ Тестовые данные удалены", flush=True)
     except Exception as e:
-        print(f"❌ Ошибка удаления тестовых данных: {e}")
+        print(f"❌ Ошибка удаления тестовых данных: {e}", flush=True)
 
-    print("✅ Тестирование системы временного доступа завершено!")
+    print("✅ Тестирование системы временного доступа завершено!", flush=True)
 
 
 def kick_user_from_channel(user_id, channel_id):
@@ -1413,36 +1420,36 @@ def kick_user_from_channel(user_id, channel_id):
 
         try:
             bot.send_message(user_id, msgs.get(lang, msgs['en']))
-            print(f"✅ Уведомление отправлено пользователю {user_id} об истечении подписки на {channel_name}")
+            print(f"✅ Уведомление отправлено пользователю {user_id} об истечении подписки на {channel_name}", flush=True)
         except Exception as msg_error:
-            print(f"⚠️ Не удалось отправить уведомление пользователю {user_id}: {msg_error}")
+            print(f"⚠️ Не удалось отправить уведомление пользователю {user_id}: {msg_error}", flush=True)
 
         # Проверяем, есть ли пользователь в канале
         try:
             member = bot.get_chat_member(channel_id, user_id)
-            print(f"📋 Пользователь {user_id} найден в канале {channel_id}, статус: {member.status}")
+            print(f"📋 Пользователь {user_id} найден в канале {channel_id}, статус: {member.status}", flush=True)
         except Exception as check_error:
-            print(f"ℹ️ Пользователь {user_id} не найден в канале {channel_id}: {check_error}")
+            print(f"ℹ️ Пользователь {user_id} не найден в канале {channel_id}: {check_error}", flush=True)
             # Если пользователя нет в канале, считаем что удаление успешно
             return True
 
         # Сначала баним пользователя
         bot.ban_chat_member(channel_id, user_id)
-        print(f"✅ Пользователь {user_id} забанен в канале {channel_id}")
+        print(f"✅ Пользователь {user_id} забанен в канале {channel_id}", flush=True)
 
         # Сразу разбанируем (kick)
         bot.unban_chat_member(channel_id, user_id)
-        print(f"✅ Пользователь {user_id} разбанен в канале {channel_id} (kick выполнен)")
+        print(f"✅ Пользователь {user_id} разбанен в канале {channel_id} (kick выполнен, flush=True)")
 
         return True
     except Exception as e:
-        print(f"❌ Ошибка kick пользователя {user_id} из канала {channel_id}: {e}")
+        print(f"❌ Ошибка kick пользователя {user_id} из канала {channel_id}: {e}", flush=True)
         return False
 
 
 def check_and_remove_expired_subscriptions():
     """Проверяет и удаляет истекшие подписки каждые 10 минут"""
-    print(f"🔍 Проверка истекших подписок... {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔍 Проверка истекших подписок... {time.strftime('%Y-%m-%d %H:%M:%S', flush=True)}")
 
     conn = psycopg2.connect(DB_URL)
     cursor = conn.cursor()
@@ -1465,10 +1472,10 @@ def check_and_remove_expired_subscriptions():
     conn.close()
 
     if not expired_subs:
-        print("✅ Нет истекших подписок")
+        print("✅ Нет истекших подписок", flush=True)
         return
 
-    print(f"📊 Найдено {len(expired_subs)} истекших подписок")
+    print(f"📊 Найдено {len(expired_subs, flush=True)} истекших подписок")
 
     # Группируем по пользователям и каналам
     user_channel_subs = {}
@@ -1497,38 +1504,38 @@ def check_and_remove_expired_subscriptions():
         else:
             channel_name = f"канал {channel_id}"
 
-        print(f"🔄 Обработка пользователя {user_id} для {channel_name}")
+        print(f"🔄 Обработка пользователя {user_id} для {channel_name}", flush=True)
 
         # Деактивируем истекшие подписки
         for sub in subs:
             try:
                 deactivate_subscription(sub['id'])
-                print(f"✅ Деактивирована подписка {sub['id']} ({sub['type']}) для пользователя {user_id}")
+                print(f"✅ Деактивирована подписка {sub['id']} ({sub['type']}, flush=True) для пользователя {user_id}")
             except Exception as e:
-                print(f"❌ Ошибка деактивации подписки {sub['id']}: {e}")
+                print(f"❌ Ошибка деактивации подписки {sub['id']}: {e}", flush=True)
 
         # Проверяем, есть ли ещё активные подписки для этого канала
         has_active = has_active_subscription(user_id, int(channel_id))
 
         if not has_active:
             # Если нет активных подписок для этого канала - удаляем из канала
-            print(f"🚫 У пользователя {user_id} нет активных подписок на {channel_name}, удаляем из канала")
+            print(f"🚫 У пользователя {user_id} нет активных подписок на {channel_name}, удаляем из канала", flush=True)
 
             try:
                 kick_success = kick_user_from_channel(user_id, int(channel_id))
                 if kick_success:
-                    print(f"✅ Пользователь {user_id} успешно удален из {channel_name}")
+                    print(f"✅ Пользователь {user_id} успешно удален из {channel_name}", flush=True)
                 else:
-                    print(f"⚠️ Не удалось удалить пользователя {user_id} из {channel_name}")
+                    print(f"⚠️ Не удалось удалить пользователя {user_id} из {channel_name}", flush=True)
             except Exception as e:
-                print(f"❌ Ошибка удаления пользователя {user_id} из {channel_name}: {e}")
+                print(f"❌ Ошибка удаления пользователя {user_id} из {channel_name}: {e}", flush=True)
         else:
             # Если есть активные подписки - оставляем в канале
             max_exp = get_max_expiration(user_id, int(channel_id))
-            print(f"✅ У пользователя {user_id} есть активные подписки на {channel_name} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(max_exp))}")
+            print(f"✅ У пользователя {user_id} есть активные подписки на {channel_name} до {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(max_exp, flush=True))}")
 
     # Проверяем пользователей со старой системой paid_until
-    print(f"🔍 Проверка старых пользователей с paid_until...")
+    print(f"🔍 Проверка старых пользователей с paid_until...", flush=True)
     conn_old = psycopg2.connect(DB_URL)
     cursor_old = conn_old.cursor()
     cursor_old.execute('''
@@ -1540,16 +1547,16 @@ def check_and_remove_expired_subscriptions():
     conn_old.close()
 
     if old_system_count > 0:
-        print(f"📊 Найдено {old_system_count} старых пользователей с истёкшим paid_until")
+        print(f"📊 Найдено {old_system_count} старых пользователей с истёкшим paid_until", flush=True)
 
     for (user_id,) in old_system_expired:
         old_system_processed += 1
-        print(f"🔍 Найден старый пользователь с истёкшим paid_until: {user_id}")
+        print(f"🔍 Найден старый пользователь с истёкшим paid_until: {user_id}", flush=True)
 
         # Получаем информацию о пользователе для проверки рефералов
         user = get_user(user_id)
         if not user:
-            print(f"⚠️ Пользователь {user_id} не найден в базе данных")
+            print(f"⚠️ Пользователь {user_id} не найден в базе данных", flush=True)
             continue
 
         # Проверяем, нет ли у него активной подписки в новой системе
@@ -1569,16 +1576,16 @@ def check_and_remove_expired_subscriptions():
 
         # Если ни активной подписки в новой системе, ни 20+ рефералов - кикаем
         if not has_active_new_system and not has_20_plus_referrals:
-            print(f"🚫 У пользователя {user_id} нет активной подписки и menos 20 рефералов, удаляем из GOLD канала")
+            print(f"🚫 У пользователя {user_id} нет активной подписки и menos 20 рефералов, удаляем из GOLD канала", flush=True)
 
             try:
                 kick_success = kick_user_from_channel(user_id, SECRET_CHANNEL_ID)
                 if kick_success:
-                    print(f"✅ Старый пользователь {user_id} успешно удален из SD FETISH GOLD")
+                    print(f"✅ Старый пользователь {user_id} успешно удален из SD FETISH GOLD", flush=True)
                 else:
-                    print(f"⚠️ Не удалось удалить старого пользователя {user_id} из SD FETISH GOLD")
+                    print(f"⚠️ Не удалось удалить старого пользователя {user_id} из SD FETISH GOLD", flush=True)
             except Exception as e:
-                print(f"❌ Ошибка удаления старого пользователя {user_id} из SD FETISH GOLD: {e}")
+                print(f"❌ Ошибка удаления старого пользователя {user_id} из SD FETISH GOLD: {e}", flush=True)
         else:
             reason = []
             if has_active_new_system:
@@ -1586,22 +1593,22 @@ def check_and_remove_expired_subscriptions():
             if has_20_plus_referrals:
                 reason.append(f"{referrals_count} рефералов")
 
-            print(f"✅ Пользователь {user_id} остаётся в канале: {' и '.join(reason)}")
+            print(f"✅ Пользователь {user_id} остаётся в канале: {' и '.join(reason, flush=True)}")
 
     if old_system_count > 0:
-        print(f"✅ Обработано {old_system_processed} старых пользователей из {old_system_count}")
+        print(f"✅ Обработано {old_system_processed} старых пользователей из {old_system_count}", flush=True)
 
 
 def start_subscription_checker():
     """Запускает проверку подписок каждые 10 минут"""
-    print("🚀 Запуск проверки подписок каждые 10 минут...")
+    print("🚀 Запуск проверки подписок каждые 10 минут...", flush=True)
 
     def check_loop():
         while True:
             try:
                 check_and_remove_expired_subscriptions()
             except Exception as e:
-                print(f"❌ Ошибка проверки подписок: {e}")
+                print(f"❌ Ошибка проверки подписок: {e}", flush=True)
 
             # Ждём 10 минут
             time.sleep(600)
@@ -1609,7 +1616,7 @@ def start_subscription_checker():
     # Запускаем в отдельном потоке
     thread = threading.Thread(target=check_loop, daemon=True)
     thread.start()
-    print("✅ Проверка подписок запущена в фоновом режиме")
+    print("✅ Проверка подписок запущена в фоновом режиме", flush=True)
 
 
 # ================= ТИПЫ ПОДПИСОК =================
@@ -1930,7 +1937,7 @@ def ensure_user(user_id):
     conn.commit()
     conn.close()
 
-    print(f"✅ Создан новый пользователь {user_id} с last_daily=0, first_bonus_claimed=0, last_bonus_reminder=0")
+    print(f"✅ Создан новый пользователь {user_id} с last_daily=0, first_bonus_claimed=0, last_bonus_reminder=0", flush=True)
 
     return get_user(user_id)
 
@@ -2116,14 +2123,14 @@ def send_language_selection(chat_id, user_id):
     """Отправляет сообщение с выбором языка и устанавливает FSM состояние"""
     set_fsm_state(user_id, FSMState.CHOOSING_LANGUAGE)
     show_lang(chat_id, user_id)
-    print(f"🌐 Отправлен выбор языка для пользователя {user_id}, FSM состояние: choosing_language")
+    print(f"🌐 Отправлен выбор языка для пользователя {user_id}, FSM состояние: choosing_language", flush=True)
 
 
 def show_sub(chat_id, user_id, message_id=None):
     """Показывает сообщение с каналами для подписки"""
     # ✅ Отправляем сообщение и ждём завершения
     send_or_edit(chat_id, t(user_id, 'sub'), sub_markup(user_id), message_id)
-    print(f"✅ Отправлено сообщение с каналами пользователю {user_id}")
+    print(f"✅ Отправлено сообщение с каналами пользователю {user_id}", flush=True)
 
 
 def show_welcome(chat_id, user_id):
@@ -2136,18 +2143,18 @@ def show_menu(chat_id, user_id, message_id=None, force_new=False):
     """Главное меню с фото сверху."""
     text = t(user_id, 'menu')
 
-    print(f"🏠 show_menu вызван: chat_id={chat_id}, user_id={user_id}, force_new={force_new}")
+    print(f"🏠 show_menu вызван: chat_id={chat_id}, user_id={user_id}, force_new={force_new}", flush=True)
 
     # Всегда удаляем старое сообщение если есть
     if message_id:
         try:
             bot.delete_message(chat_id, message_id)
-            print(f"✅ Старое сообщение удалено")
+            print(f"✅ Старое сообщение удалено", flush=True)
         except Exception:
             pass
 
     # Отправляем меню (с фото или текстом)
-    print(f"📸 Отправка нового меню... USE_PHOTO_MENU={USE_PHOTO_MENU}")
+    print(f"📸 Отправка нового меню... USE_PHOTO_MENU={USE_PHOTO_MENU}", flush=True)
     if USE_PHOTO_MENU:
         try:
             bot.send_photo(
@@ -2157,18 +2164,18 @@ def show_menu(chat_id, user_id, message_id=None, force_new=False):
                 reply_markup=menu_markup(user_id),
                 parse_mode='HTML'
             )
-            print(f"✅ Меню отправлено с фото")
+            print(f"✅ Меню отправлено с фото", flush=True)
         except Exception as photo_error:
-            print(f"❌ Ошибка отправки фото: {photo_error}")
+            print(f"❌ Ошибка отправки фото: {photo_error}", flush=True)
             # Если фото не загрузилось, шлём текст
             bot.send_message(chat_id, text, reply_markup=menu_markup(user_id),
                              disable_web_page_preview=True, parse_mode='HTML')
-            print(f"✅ Меню отправлено с текстом")
+            print(f"✅ Меню отправлено с текстом", flush=True)
     else:
         # Отправляем только текст
         bot.send_message(chat_id, text, reply_markup=menu_markup(user_id),
                          disable_web_page_preview=True, parse_mode='HTML')
-        print(f"✅ Меню отправлено с текстом")
+        print(f"✅ Меню отправлено с текстом", flush=True)
         
 # ================= SENDERS =================
 
@@ -2213,17 +2220,17 @@ def daily_bonus(user_id, bonus_message_id=None):
             remaining = int(86400 - (now - last_daily))
             hours = remaining // 3600
             minutes = (remaining % 3600) // 60
-            print(f"⏳ Пользователь {user_id} уже получал бонус сегодня. Осталось: {hours}ч {minutes}мин")
+            print(f"⏳ Пользователь {user_id} уже получал бонус сегодня. Осталось: {hours}ч {minutes}мин", flush=True)
             return False
 
-    print(f"🔍 Выдача ежедневного бонуса для пользователя {user_id}")
+    print(f"🔍 Выдача ежедневного бонуса для пользователя {user_id}", flush=True)
 
     reward = random.randint(1, 5)
 
     # ✅ Получаем актуальный бонус перед обновлением
     current_bonus = user.get('bonus', 0)
 
-    print(f"✅ Выдаём ежедневный бонус пользователю {user_id}: +{reward} (было: {current_bonus}, станет: {current_bonus + reward})")
+    print(f"✅ Выдаём ежедневный бонус пользователю {user_id}: +{reward} (было: {current_bonus}, станет: {current_bonus + reward}, flush=True)")
 
     # ✅ Обновляем данные пользователя
     update_data = {
@@ -2243,20 +2250,20 @@ def daily_bonus(user_id, bonus_message_id=None):
 
     if result:
         db_last_daily, db_bonus, db_first_bonus_claimed = result
-        print(f"🔍 ПРЯМАЯ ПРОВЕРКА В БАЗЕ:")
-        print(f"   last_daily в базе: {db_last_daily}")
-        print(f"   bonus в базе: {db_bonus}")
-        print(f"   first_bonus_claimed в базе: {db_first_bonus_claimed}")
-        print(f"   Ожидалось last_daily: {now}")
-        print(f"   Ожидалось bonus: {current_bonus + reward}")
-        print(f"   Ожидалось first_bonus_claimed: 1")
+        print(f"🔍 ПРЯМАЯ ПРОВЕРКА В БАЗЕ:", flush=True)
+        print(f"   last_daily в базе: {db_last_daily}", flush=True)
+        print(f"   bonus в базе: {db_bonus}", flush=True)
+        print(f"   first_bonus_claimed в базе: {db_first_bonus_claimed}", flush=True)
+        print(f"   Ожидалось last_daily: {now}", flush=True)
+        print(f"   Ожидалось bonus: {current_bonus + reward}", flush=True)
+        print(f"   Ожидалось first_bonus_claimed: 1", flush=True)
 
         if db_last_daily != now:
-            print(f"❌ ОШИБКА: last_daily не сохранился в базе!")
+            print(f"❌ ОШИБКА: last_daily не сохранился в базе!", flush=True)
         if db_bonus != current_bonus + reward:
-            print(f"❌ ОШИБКА: bonus не сохранился в базе!")
+            print(f"❌ ОШИБКА: bonus не сохранился в базе!", flush=True)
         if db_first_bonus_claimed != 1:
-            print(f"❌ ОШИБКА: first_bonus_claimed не сохранился в базе!")
+            print(f"❌ ОШИБКА: first_bonus_claimed не сохранился в базе!", flush=True)
 
     lang = user.get('lang') or 'en'
     if lang == 'ru':
@@ -2275,10 +2282,10 @@ def daily_bonus(user_id, bonus_message_id=None):
                 text=msg,
                 reply_markup=None
             )
-            print(f"✅ Отредактировано сообщение с бонусом для пользователя {user_id}")
+            print(f"✅ Отредактировано сообщение с бонусом для пользователя {user_id}", flush=True)
             return True
         except Exception as e:
-            print(f"❌ Ошибка редактирования сообщения: {e}")
+            print(f"❌ Ошибка редактирования сообщения: {e}", flush=True)
             # Если не удалось отредактировать, отправляем новое сообщение
             bot.send_message(user_id, msg)
             return True
@@ -2499,7 +2506,7 @@ def check_sub(user_id):
                 return False
         return True
     except Exception as e:
-        print(f'Ошибка проверки подписки: {e}')
+        print(f'Ошибка проверки подписки: {e}', flush=True)
         return False
 
 
@@ -2508,12 +2515,12 @@ def auto_add_to_hub_channels(user_id):
     try:
         target_channels = HUB_CHANNELS[:2]  # SD_FETISH_HUB и MUSIC
 
-        print(f"🔍 Отправка инвайт-ссылок пользователю {user_id} для {len(target_channels)} каналов...")
+        print(f"🔍 Отправка инвайт-ссылок пользователю {user_id} для {len(target_channels, flush=True)} каналов...")
 
         for ch in target_channels:
             if 'chat_id' in ch and ch['chat_id']:
                 chat_id = ch['chat_id']
-                print(f"📋 Обработка канала {chat_id}...")
+                print(f"📋 Обработка канала {chat_id}...", flush=True)
 
                 try:
                     # ✅ Проверяем, является ли бот администратором
@@ -2521,25 +2528,25 @@ def auto_add_to_hub_channels(user_id):
                     bot_member = bot.get_chat_member(chat_id, bot_info.id)
 
                     if bot_member.status not in ['administrator', 'creator']:
-                        print(f"❌ Бот не администратор канала {chat_id}")
+                        print(f"❌ Бот не администратор канала {chat_id}", flush=True)
                         continue
 
-                    print(f"✅ Бот является администратором канала {chat_id}")
+                    print(f"✅ Бот является администратором канала {chat_id}", flush=True)
 
                     # ✅ Проверяем, есть ли пользователь уже в канале
                     try:
                         user_member = bot.get_chat_member(chat_id, user_id)
                         if user_member.status in ['member', 'administrator', 'creator']:
-                            print(f"✅ Пользователь {user_id} уже в канале {chat_id}")
+                            print(f"✅ Пользователь {user_id} уже в канале {chat_id}", flush=True)
                             continue
                     except:
-                        print(f"ℹ️ Пользователь {user_id} не в канале {chat_id}")
+                        print(f"ℹ️ Пользователь {user_id} не в канале {chat_id}", flush=True)
 
                     # ✅ Создаём инвайт-ссылку
                     invite_link = create_one_time_invite_link(chat_id, expire_seconds=86400)
 
                     if invite_link:
-                        print(f"✅ Инвайт-ссылка создана: {invite_link}")
+                        print(f"✅ Инвайт-ссылка создана: {invite_link}", flush=True)
 
                         # ✅ Отправляем ссылку пользователю
                         lang = ensure_user(user_id).get('lang') or 'en'
@@ -2560,16 +2567,16 @@ def auto_add_to_hub_channels(user_id):
                         markup.add(types.InlineKeyboardButton(btn_text, url=invite_link))
 
                         bot.send_message(user_id, msg, reply_markup=markup)
-                        print(f"✅ Отправлена ссылка пользователю {user_id} для канала {chat_id}")
+                        print(f"✅ Отправлена ссылка пользователю {user_id} для канала {chat_id}", flush=True)
 
                     else:
-                        print(f"❌ Не удалось создать инвайт-ссылку для {chat_id}")
+                        print(f"❌ Не удалось создать инвайт-ссылку для {chat_id}", flush=True)
 
                 except Exception as e:
-                    print(f"❌ Ошибка обработки канала {chat_id}: {e}")
+                    print(f"❌ Ошибка обработки канала {chat_id}: {e}", flush=True)
 
     except Exception as e:
-        print(f"❌ Ошибка в auto_add_to_hub_channels: {e}")
+        print(f"❌ Ошибка в auto_add_to_hub_channels: {e}", flush=True)
 
 
 def handle_ref(message):
@@ -2860,7 +2867,7 @@ def start_sequential(message):
 
     # Если есть параметр или пользователь новый - запускаем последовательный onboarding
     if has_param or user.get('funnel_step', 0) < FUNNEL_MENU:
-        print(f"🚀 Запуск последовательного onboarding для пользователя {user_id}")
+        print(f"🚀 Запуск последовательного onboarding для пользователя {user_id}", flush=True)
         start_sequential_onboarding(user_id, source='referral' if has_param else 'start')
         return
 
@@ -2880,10 +2887,10 @@ def on_language_selected(call, lang):
     # Проверяем FSM состояние - обрабатываем только если пользователь выбирает язык
     current_state = get_fsm_state(user_id)
     if current_state != FSMState.CHOOSING_LANGUAGE:
-        print(f"⚠️ FSM: User {user_id} not in choosing_language state (current: {current_state}), skipping language selection flow")
+        print(f"⚠️ FSM: User {user_id} not in choosing_language state (current: {current_state}, flush=True), skipping language selection flow")
         return
 
-    print(f"🌐 Пользователь {user_id} выбрал язык: {lang}")
+    print(f"🌐 Пользователь {user_id} выбрал язык: {lang}", flush=True)
 
     # 1. Сохраняем язык
     update_user(user_id, lang=lang)
@@ -2949,7 +2956,7 @@ def callback(call):
                 alert_text = f"⏳ Bonus will be available in {hours}h {minutes}min"
 
             bot.answer_callback_query(call.id, alert_text, show_alert=True)
-            print(f"⏳ Пользователь {user_id} пытается получить бонус раньше времени. Осталось: {hours}ч {minutes}мин")
+            print(f"⏳ Пользователь {user_id} пытается получить бонус раньше времени. Осталось: {hours}ч {minutes}мин", flush=True)
             return
 
         # ✅ Если проверка прошла, продолжаем обработку
@@ -2974,9 +2981,9 @@ def callback(call):
                     text=success_text,
                     reply_markup=None  # Убираем кнопки
                 )
-                print(f"✅ Отредактировано сообщение о бонусе для пользователя {user_id}")
+                print(f"✅ Отредактировано сообщение о бонусе для пользователя {user_id}", flush=True)
             except Exception as e:
-                print(f"❌ Ошибка редактирования сообщения: {e}")
+                print(f"❌ Ошибка редактирования сообщения: {e}", flush=True)
 
         # Даем бонус (передаем bonus_message_id для редактирования)
         bonus_given = daily_bonus(user_id, bonus_message_id)
@@ -3446,18 +3453,18 @@ def handle_all_join_requests(join_request):
     chat_id = join_request.chat.id
     user_name = join_request.from_user.first_name or "Unknown"
 
-    print(f"🔔 ПОЛУЧЕН ЗАПРОС НА ВСТУПЛЕНИЕ:")
-    print(f"   Пользователь: {user_name} (ID: {user_id})")
-    print(f"   Канал: {chat_id}")
-    print(f"   Время: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"🔔 ПОЛУЧЕН ЗАПРОС НА ВСТУПЛЕНИЕ:", flush=True)
+    print(f"   Пользователь: {user_name} (ID: {user_id}, flush=True)")
+    print(f"   Канал: {chat_id}", flush=True)
+    print(f"   Время: {time.strftime('%Y-%m-%d %H:%M:%S', flush=True)}")
 
     # ✅ Проверяем, это ли секретный канал
     if chat_id == SECRET_CHANNEL_ID:
-        print(f"🔒 Это секретный канал, проверяем доступ...")
+        print(f"🔒 Это секретный канал, проверяем доступ...", flush=True)
         user = get_user(user_id)
 
         if not user:
-            print(f"❌ Пользователь {user_id} не найден в базе")
+            print(f"❌ Пользователь {user_id} не найден в базе", flush=True)
             bot.decline_chat_join_request(chat_id, user_id)
             return
 
@@ -3473,11 +3480,11 @@ def handle_all_join_requests(join_request):
                 user.get('paid_until', 0) > time.time()
             )
 
-        print(f"   Доступ: {has_access}")
+        print(f"   Доступ: {has_access}", flush=True)
 
         if has_access:
             bot.approve_chat_join_request(chat_id, user_id)
-            print(f"✅ Доступ разрешён для пользователя {user_id}")
+            print(f"✅ Доступ разрешён для пользователя {user_id}", flush=True)
 
             bot.send_message(
                 user_id,
@@ -3486,7 +3493,7 @@ def handle_all_join_requests(join_request):
             )
         else:
             bot.decline_chat_join_request(chat_id, user_id)
-            print(f"❌ Доступ запрещён для пользователя {user_id}")
+            print(f"❌ Доступ запрещён для пользователя {user_id}", flush=True)
 
             bot.send_message(
                 user_id,
@@ -3500,22 +3507,22 @@ def handle_all_join_requests(join_request):
 
     # ✅ Проверяем, это ли LITE канал
     if chat_id == LITE_CHANNEL_ID:
-        print(f"🔒 Это LITE канал, проверяем доступ...")
+        print(f"🔒 Это LITE канал, проверяем доступ...", flush=True)
         user = get_user(user_id)
 
         if not user:
-            print(f"❌ Пользователь {user_id} не найден в базе")
+            print(f"❌ Пользователь {user_id} не найден в базе", flush=True)
             bot.decline_chat_join_request(chat_id, user_id)
             return
 
         # ✅ Используем новую систему подписок для LITE канала
         has_access = has_active_subscription(user_id, LITE_CHANNEL_ID)
 
-        print(f"   Доступ: {has_access}")
+        print(f"   Доступ: {has_access}", flush=True)
 
         if has_access:
             bot.approve_chat_join_request(chat_id, user_id)
-            print(f"✅ Доступ разрешён для пользователя {user_id} в LITE канал")
+            print(f"✅ Доступ разрешён для пользователя {user_id} в LITE канал", flush=True)
 
             bot.send_message(
                 user_id,
@@ -3524,7 +3531,7 @@ def handle_all_join_requests(join_request):
             )
         else:
             bot.decline_chat_join_request(chat_id, user_id)
-            print(f"❌ Доступ запрещён для пользователя {user_id} в LITE канал")
+            print(f"❌ Доступ запрещён для пользователя {user_id} в LITE канал", flush=True)
 
             bot.send_message(
                 user_id,
@@ -3537,25 +3544,25 @@ def handle_all_join_requests(join_request):
 
     # ✅ Проверяем, это ли хаб-каналы
     hub_channel_ids = [ch.get('chat_id') for ch in HUB_CHANNELS[:2] if 'chat_id' in ch]
-    print(f"📋 Хаб-каналы: {hub_channel_ids}")
+    print(f"📋 Хаб-каналы: {hub_channel_ids}", flush=True)
 
     if chat_id in hub_channel_ids:
-        print(f"✅ Это хаб-канал, начинаем процесс добавления...")
+        print(f"✅ Это хаб-канал, начинаем процесс добавления...", flush=True)
 
         try:
             # ✅ Одобряем запрос на вступление
             bot.approve_chat_join_request(chat_id, user_id)
-            print(f"✅ Запрос на вступление одобрен для пользователя {user_id}")
+            print(f"✅ Запрос на вступление одобрен для пользователя {user_id}", flush=True)
 
             # ✅ Запускаем цепочку onboarding через выбор языка
             send_language_selection(user_id, user_id)
-            print(f"✅ Запущена цепочка onboarding для пользователя {user_id}")
+            print(f"✅ Запущена цепочка onboarding для пользователя {user_id}", flush=True)
 
         except Exception as e:
-            print(f"❌ Ошибка обработки для {chat_id}: {e}")
+            print(f"❌ Ошибка обработки для {chat_id}: {e}", flush=True)
         return
 
-    print(f"ℹ️ Канал {chat_id} не обрабатывается ботом")
+    print(f"ℹ️ Канал {chat_id} не обрабатывается ботом", flush=True)
 #===================подтверждение оплаты===============
 @bot.pre_checkout_query_handler(func=lambda q: True)
 def checkout(pre_checkout_query):
@@ -3683,12 +3690,12 @@ def handle_photo(message):
         bot.send_message(user_id, "❌ Фото не найдено в сообщении.")
 
 if __name__ == '__main__':
-    print('🚀 Бот запущен...')
-    print('⚠️  Добавь бота как администратора во все каналы!')
-    print('⚠️  Особенно важно: права "Просматривать сообщения" + "Удалять сообщения" в LITE канале')
+    print('🚀 Бот запущен...', flush=True)
+    print('⚠️  Добавь бота как администратора во все каналы!', flush=True)
+    print('⚠️  Особенно важно: права "Просматривать сообщения" + "Удалять сообщения" в LITE канале', flush=True)
 
     # Инициализация системы напоминаний о ежедневном бонусе
-    print("🎁 Инициализация системы ежедневных бонусов...")
+    print("🎁 Инициализация системы ежедневных бонусов...", flush=True)
     initialize_bonus_reminders()
 
     # Запуск централизованной системы напоминаний
@@ -3699,6 +3706,6 @@ if __name__ == '__main__':
     threading.Thread(target=check_and_remove_expired_subscriptions, daemon=True).start()
 
 
-    print("✅ Все сервисы запущены. Бот работает.")
+    print("✅ Все сервисы запущены. Бот работает.", flush=True)
 
     bot.infinity_polling(skip_pending=True, timeout=10, long_polling_timeout=5)
